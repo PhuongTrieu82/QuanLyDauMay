@@ -60,6 +60,7 @@
                         <button data-menu="export" class="w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">📊 Xuất báo cáo Excel</button>
                         <button data-menu="status" class="admin-only hidden w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">⚙️ Cài đặt cấp trạng thái</button>
                         <button data-menu="trash" id="menuTrash" class="admin-only hidden w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">🗑️ Hiện đầu máy đã xóa</button>
+                        <button data-menu="backup" class="admin-only hidden w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">💾 Sao lưu / Khôi phục (JSON)</button>
                         <button data-menu="migrate" class="admin-only hidden w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">📥 Chuyển dữ liệu từ v5.9</button>
                         <button data-menu="logout" class="w-full text-left px-3 py-2.5 text-xs font-semibold text-red-600 hover:bg-red-50 border-t">🚪 Đăng xuất</button>
                     </div>
@@ -68,6 +69,11 @@
         </header>
 
         <main class="container mx-auto px-3 py-4 max-w-6xl flex-grow pb-28">
+
+            <div id="backupBanner" class="hidden mb-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3 text-xs items-center justify-between gap-2">
+                <span id="backupBannerText"></span>
+                <button id="backupBannerBtn" type="button" class="shrink-0 bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg font-bold">Sao lưu ngay</button>
+            </div>
 
             <!-- Thống kê -->
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
@@ -306,6 +312,29 @@
         </div>
     </div>
 
+    <!-- MODAL SAO LƯU / KHÔI PHỤC (quản trị) -->
+    <div id="backupModal" class="modal-backdrop fixed inset-0 bg-black/60 hidden items-center justify-center p-3 z-50">
+        <div class="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-3 border-b pb-2">
+                <h3 class="text-base font-bold text-indigo-900">💾 Sao lưu / Khôi phục (JSON)</h3>
+                <button data-close="backupModal" aria-label="Đóng" class="text-gray-400 hover:text-gray-700 font-bold text-xl">&times;</button>
+            </div>
+            <div class="space-y-2 mb-4">
+                <p class="text-xs font-bold text-gray-700">1. Tải bản sao lưu về máy</p>
+                <label class="flex items-center gap-2 text-xs"><input type="checkbox" id="bkImages"> Kèm ảnh đính kèm (file sẽ nặng hơn)</label>
+                <p id="bkLast" class="text-[11px] text-gray-500"></p>
+                <button type="button" id="bkRunBtn" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow">⬇️ Tải file sao lưu (.json)</button>
+            </div>
+            <div class="space-y-2 pt-3 border-t">
+                <p class="text-xs font-bold text-gray-700">2. Khôi phục từ file JSON</p>
+                <p class="text-[11px] text-gray-500">Chế độ <b>gộp</b>: mục trùng được ghi đè theo file, mục khác <b>không bị xóa</b>.</p>
+                <input type="file" id="bkFile" accept=".json,application/json" class="w-full text-xs">
+                <pre id="bkLog" class="text-[11px] bg-gray-50 border rounded-lg p-2.5 min-h-[3rem] whitespace-pre-wrap text-gray-700">Chọn file sao lưu để xem trước.</pre>
+                <button type="button" id="bkRestoreBtn" disabled class="w-full py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold disabled:opacity-40">♻️ Khôi phục vào hệ thống</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // =====================================================================
         //  CẤU HÌNH FIREBASE
@@ -518,6 +547,73 @@
             locos.forEach((loc, i) => rows.push([i + 1, loc.number || '', loc.status || '', isoToDash(loc.lastDate), cleanText(loc.note)]));
             return rows;
         }
+
+        // ---- Sao lưu / khôi phục JSON ----
+        function clampStr(v, n) { return typeof v === 'string' ? v.slice(0, n) : null; }
+        function validKey(k) { return typeof k === 'string' && k.length > 0 && k.length < 200 && !/[.#$\[\]\/]/.test(k); }
+        function parseBackup(text) {
+            let d;
+            try { d = JSON.parse(text); } catch (e) { return { ok: false, error: 'File không phải JSON hợp lệ.' }; }
+            if (!d || d.app !== 'qldm' || typeof d.locomotives !== 'object' || d.locomotives === null) return { ok: false, error: 'Đây không phải file sao lưu của ứng dụng này.' };
+            return { ok: true, data: d };
+        }
+        // Chỉ nhận các trường đã biết, đúng kiểu, đúng giới hạn - trường lạ bị loại (tránh bị Rules từ chối)
+        function buildRestorePlan(d, ctx) {
+            const R = ctx.root, chunks = [];
+            const stats = { locos: 0, histories: 0, images: 0, statuses: 0, skipped: 0 };
+            const sc = d.statusConfigs && typeof d.statusConfigs === 'object' ? d.statusConfigs : {};
+            const su = {};
+            Object.keys(sc).forEach((k, i) => {
+                const s = sc[k];
+                if (!validKey(k) || !s || typeof s.key !== 'string' || !['running', 'maintenance', 'lt'].includes(s.group)) { stats.skipped++; return; }
+                su[`${R}/statusConfigs/${k}`] = { key: s.key.slice(0, 40), desc: String(s.desc || s.key).slice(0, 120), group: s.group, order: typeof s.order === 'number' ? s.order : i };
+                stats.statuses++;
+            });
+            if (stats.statuses) chunks.push({ label: 'Cấp trạng thái', updates: su });
+
+            const locs = d.locomotives && typeof d.locomotives === 'object' ? d.locomotives : {};
+            const hists = d.histories && typeof d.histories === 'object' ? d.histories : {};
+            const imgs = d.images && typeof d.images === 'object' ? d.images : {};
+            const ids = [...new Set([...Object.keys(locs), ...Object.keys(hists)])];
+            ids.forEach(id => {
+                if (!validKey(id)) { stats.skipped++; return; }
+                const up = {}; let any = false;
+                const l = locs[id];
+                if (l && typeof l === 'object') {
+                    const number = clampStr(l.number, 20), series = clampStr(l.series, 10), status = clampStr(l.status, 40);
+                    if (number && series && status) {
+                        const f = { number, series, status, lastDate: clampStr(l.lastDate, 10) || '' };
+                        const note = clampStr(l.note, 1000); if (note !== null) f.note = note;
+                        const ub = clampStr(l.updatedBy, 80); if (ub !== null) f.updatedBy = ub;
+                        if (typeof l.updatedByUid === 'string') f.updatedByUid = l.updatedByUid;
+                        if (typeof l.updatedAt === 'number') f.updatedAt = l.updatedAt;
+                        if (typeof l.deleted === 'boolean') f.deleted = l.deleted;
+                        Object.keys(f).forEach(k => { up[`${R}/locomotives/${id}/${k}`] = f[k]; });
+                        stats.locos++; any = true;
+                    } else stats.skipped++;
+                }
+                const hs = hists[id];
+                if (hs && typeof hs === 'object') Object.keys(hs).forEach(hid => {
+                    const h = hs[hid];
+                    if (!validKey(hid) || !h || typeof h !== 'object' || typeof h.status !== 'string') { stats.skipped++; return; }
+                    const rec = {
+                        date: clampStr(h.date, 10) || '', status: h.status.slice(0, 40), team: clampStr(h.team, 80) || '', note: clampStr(h.note, 2000) || '',
+                        by: (typeof h.by === 'string' && h.by) ? h.by : ctx.uid, at: typeof h.at === 'number' ? h.at : ctx.now
+                    };
+                    const bn = clampStr(h.byName, 80); if (bn) rec.byName = bn;
+                    if (typeof h.deleted === 'boolean') rec.deleted = h.deleted;
+                    const dn = clampStr(h.deletedBy, 80); if (dn) rec.deletedBy = dn;
+                    const en = clampStr(h.editedBy, 80); if (en) rec.editedBy = en;
+                    if (typeof h.editedAt === 'number') rec.editedAt = h.editedAt;
+                    const im = imgs[hid];
+                    if (typeof im === 'string' && im.startsWith('data:image/') && im.length < 200000) { rec.hasImage = true; up[`${R}/images/${hid}`] = im; stats.images++; }
+                    else if (h.hasImage === true) rec.hasImage = true;
+                    up[`${R}/histories/${id}/${hid}`] = rec; stats.histories++; any = true;
+                });
+                if (any) chunks.push({ label: id, updates: up });
+            });
+            return { chunks, stats };
+        }
         // </PURE>
 
         // =====================================================================
@@ -555,7 +651,7 @@
         function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
         // ---- Modal ----
-        const MODAL_ORDER = ['imageModal', 'updateModal', 'migrateModal', 'exportModal', 'statusModal', 'addModal', 'historyModal'];
+        const MODAL_ORDER = ['imageModal', 'updateModal', 'backupModal', 'migrateModal', 'exportModal', 'statusModal', 'addModal', 'historyModal'];
         function openModal(id) { const m = $(id); m.classList.remove('hidden'); m.classList.add('flex'); }
         function closeModal(id) {
             const m = $(id); m.classList.add('hidden'); m.classList.remove('flex');
@@ -651,6 +747,7 @@
                 }
                 refreshSeriesFilter();
                 render();
+                checkBackupReminder();
             }, err => toast('Không đọc được dữ liệu: ' + err.message, 'error'));
 
             refs.status = db.ref(`${ROOT}/statusConfigs`);
@@ -825,6 +922,7 @@
             const m = b.dataset.menu;
             if (m === 'export') openExport();
             else if (m === 'status' && isAdmin) { renderStatusList(); resetStatusForm(); openModal('statusModal'); }
+            else if (m === 'backup' && isAdmin) openBackup();
             else if (m === 'migrate' && isAdmin) { migPlan = null; $('migRunBtn').disabled = true; $('migLog').textContent = 'Bấm "1. Đọc dữ liệu cũ" để bắt đầu.'; openModal('migrateModal'); }
             else if (m === 'trash' && isAdmin) { showDeleted = !showDeleted; b.textContent = showDeleted ? '🗑️ Ẩn đầu máy đã xóa' : '🗑️ Hiện đầu máy đã xóa'; render(); }
             else if (m === 'logout') { if (confirm('Đăng xuất khỏi ứng dụng?')) auth.signOut(); }
@@ -1224,6 +1322,73 @@
             }
             migLog(`Hoàn tất: ${total - fail}/${total} gói thành công.\n${log}${fail ? '\nBấm "2. Ghi sang v6" để thử lại phần lỗi.' : '\nDữ liệu cũ vẫn còn nguyên ở nút gốc.'}`);
             $('migReadBtn').disabled = false; $('migRunBtn').disabled = fail === 0;
+        });
+
+        // =====================================================================
+        //  SAO LƯU / KHÔI PHỤC JSON (quản trị)
+        // =====================================================================
+        let bkPlan = null, bkReminded = false;
+        function bkLog(t) { $('bkLog').textContent = t; }
+        function refreshBackupInfo() {
+            const t = lsGet('qldm_lastBackup', 0);
+            $('bkLast').textContent = t ? 'Lần sao lưu gần nhất trên thiết bị này: ' + new Date(t).toLocaleString('vi-VN') : 'Chưa sao lưu lần nào trên thiết bị này.';
+        }
+        function openBackup() {
+            bkPlan = null; $('bkFile').value = ''; $('bkRestoreBtn').disabled = true; bkLog('Chọn file sao lưu để xem trước.');
+            refreshBackupInfo(); openModal('backupModal');
+        }
+        function checkBackupReminder() {
+            if (bkReminded || !isAdmin || !dataLoaded || !locos.length) return;
+            bkReminded = true;
+            const t = lsGet('qldm_lastBackup', 0), days = t ? (Date.now() - t) / 86400000 : Infinity;
+            if (days < 7) return;
+            $('backupBannerText').textContent = t ? `⏰ Đã ${Math.floor(days)} ngày chưa sao lưu dữ liệu.` : '⏰ Chưa có bản sao lưu nào trên thiết bị này.';
+            $('backupBanner').classList.remove('hidden'); $('backupBanner').classList.add('flex');
+        }
+        $('backupBannerBtn').addEventListener('click', openBackup);
+
+        $('bkRunBtn').addEventListener('click', async () => {
+            if (!isAdmin) return;
+            const btn = $('bkRunBtn'); btn.disabled = true; btn.textContent = 'Đang đọc dữ liệu…';
+            try {
+                const withImg = $('bkImages').checked;
+                const get = p => db.ref(`${ROOT}/${p}`).once('value').then(s => s.val() || {});
+                const [l, h, s, im] = await Promise.all([get('locomotives'), get('histories'), get('statusConfigs'), withImg ? get('images') : Promise.resolve({})]);
+                const data = { app: 'qldm', schema: 1, version: '6.0', exportedAt: new Date().toISOString(), exportedBy: userName(), includesImages: withImg, locomotives: l, histories: h, statusConfigs: s, images: im };
+                const d = new Date(), stamp = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}`;
+                const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+                const a = document.createElement('a'); a.href = url; a.download = `QLDM_SaoLuu_${stamp}.json`;
+                document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+                lsSet('qldm_lastBackup', Date.now()); refreshBackupInfo();
+                $('backupBanner').classList.add('hidden'); $('backupBanner').classList.remove('flex');
+                toast(`✅ Đã tải bản sao lưu (${Object.keys(l).length} đầu máy)`);
+            } catch (err) { toast('Sao lưu thất bại: ' + err.message, 'error'); }
+            finally { btn.disabled = false; btn.textContent = '⬇️ Tải file sao lưu (.json)'; }
+        });
+
+        $('bkFile').addEventListener('change', async e => {
+            bkPlan = null; $('bkRestoreBtn').disabled = true;
+            const f = e.target.files[0]; if (!f) return;
+            if (f.size > 60 * 1024 * 1024) { bkLog('File quá lớn (> 60 MB).'); return; }
+            const r = parseBackup(await f.text());
+            if (!r.ok) { bkLog('⚠️ ' + r.error); return; }
+            bkPlan = buildRestorePlan(r.data, { root: ROOT, uid: currentUser.uid, now: Date.now() });
+            const s = bkPlan.stats;
+            bkLog(`File sao lưu lúc: ${r.data.exportedAt ? new Date(r.data.exportedAt).toLocaleString('vi-VN') : 'không rõ'}${r.data.exportedBy ? ' (bởi ' + r.data.exportedBy + ')' : ''}\n• ${s.locos} đầu máy\n• ${s.histories} bản ghi lịch sử\n• ${s.images} ảnh\n• ${s.statuses} cấp trạng thái\n• Bỏ qua ${s.skipped} mục không hợp lệ`);
+            $('bkRestoreBtn').disabled = (s.locos + s.histories) === 0;
+        });
+        $('bkRestoreBtn').addEventListener('click', async () => {
+            if (!isAdmin || !bkPlan) return;
+            if (!confirm('Khôi phục dữ liệu từ file này? Các mục trùng sẽ bị ghi đè theo file, mục khác được giữ nguyên.')) return;
+            $('bkRestoreBtn').disabled = true; $('bkFile').disabled = true;
+            const total = bkPlan.chunks.length; let done = 0, fail = 0, log = '';
+            for (const ch of bkPlan.chunks) {
+                try { await db.ref().update(ch.updates); } catch (err) { fail++; log += `✗ ${ch.label}: ${err.message}\n`; }
+                done++; bkLog(`Đang ghi ${done}/${total}…\n${log}`);
+            }
+            bkLog(`Hoàn tất: ${total - fail}/${total} gói thành công.\n${log}`);
+            $('bkFile').disabled = false; $('bkRestoreBtn').disabled = fail === 0;
+            if (!fail) toast('✅ Đã khôi phục dữ liệu');
         });
 
         // PWA: chạy ngoại tuyến phần giao diện
