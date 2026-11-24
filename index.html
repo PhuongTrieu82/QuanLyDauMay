@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quản Lý Đầu Máy Diesel v6.0 - Triệu Việt Phương</title>
+
+    <meta name="author" content="Triệu Việt Phương">
+    <meta name="copyright" content="© 2026 Triệu Việt Phương. All rights reserved.">
+    <meta name="theme-color" content="#1e3a8a">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+    <link rel="apple-touch-icon" href="icons/icon-180.png">
+    <link rel="manifest" href="manifest.json">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Firebase SDK Compat v9 -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <!-- SheetJS được nạp lười khi bấm Xuất Excel -->
+</head>
+<body class="bg-gray-100 font-sans min-h-screen text-gray-800">
+
+    <!-- Thông báo nhanh (thay alert) -->
+    <div id="toastBox" class="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2 w-[92%] max-w-sm pointer-events-none"></div>
+
+    <!-- ĐĂNG NHẬP -->
+    <section id="loginView" class="fixed inset-0 z-[80] bg-indigo-900 flex items-center justify-center p-4">
+        <form id="loginForm" class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl space-y-3">
+            <div class="text-center">
+                <img src="icons/icon-192.png" alt="Logo" class="w-20 h-20 mx-auto rounded-2xl shadow">
+                <h1 class="mt-3 text-base font-extrabold text-indigo-900">QUẢN LÝ ĐẦU MÁY DIESEL</h1>
+                <p class="text-xs text-gray-500">Đăng nhập để tiếp tục</p>
+            </div>
+            <input type="email" id="loginEmail" required autocomplete="username" placeholder="Email" class="w-full px-3 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600">
+            <input type="password" id="loginPass" required autocomplete="current-password" placeholder="Mật khẩu" class="w-full px-3 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600">
+            <p id="loginError" class="text-xs text-red-600 min-h-[1rem]"></p>
+            <button type="submit" id="loginBtn" class="w-full py-2.5 bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg text-sm font-bold shadow">Đăng nhập</button>
+            <p class="text-[10px] text-gray-400 text-center">Tài khoản do quản trị viên cấp.</p>
+        </form>
+    </section>
+
+    <div id="appView" class="hidden flex-col min-h-screen">
+
+        <!-- Header -->
+        <header class="bg-indigo-900 text-white shadow-md sticky top-0 z-40">
+            <div class="container mx-auto px-3 py-2.5 flex justify-between items-center max-w-6xl">
+                <div class="flex items-center gap-2 min-w-0">
+                    <img src="icons/icon-64.png" onerror="this.src='icons/icon-192.png'" alt="Logo" class="w-9 h-9 rounded-lg shadow shrink-0">
+                    <div class="min-w-0">
+                        <h1 class="text-sm md:text-lg font-bold leading-tight truncate">QUẢN LÝ ĐẦU MÁY DIESEL</h1>
+                        <p id="cloudStatusText" class="text-[10px] text-indigo-200">Đang kết nối…</p>
+                    </div>
+                </div>
+                <div class="relative">
+                    <button id="menuBtn" type="button" aria-label="Menu" class="bg-indigo-700 hover:bg-indigo-600 w-10 h-10 rounded-lg text-xl font-bold shadow">⋮</button>
+                    <div id="menuPanel" class="hidden absolute right-0 top-full mt-1 w-60 bg-white text-gray-800 rounded-xl shadow-2xl border overflow-hidden z-50">
+                        <p id="menuUser" class="px-3 py-2 text-[11px] text-gray-500 bg-gray-50 border-b truncate"></p>
+                        <button data-menu="export" class="w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">📊 Xuất báo cáo Excel</button>
+                        <button data-menu="status" class="admin-only hidden w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">⚙️ Cài đặt cấp trạng thái</button>
+                        <button data-menu="trash" id="menuTrash" class="admin-only hidden w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">🗑️ Hiện đầu máy đã xóa</button>
+                        <button data-menu="migrate" class="admin-only hidden w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">📥 Chuyển dữ liệu từ v5.9</button>
+                        <button data-menu="logout" class="w-full text-left px-3 py-2.5 text-xs font-semibold text-red-600 hover:bg-red-50 border-t">🚪 Đăng xuất</button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="container mx-auto px-3 py-4 max-w-6xl flex-grow pb-28">
+
+            <!-- Thống kê -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                <div data-cat="ALL" class="stat-card bg-white p-3 rounded-xl border-l-4 border-blue-600 shadow-sm cursor-pointer hover:shadow-md transition">
+                    <p class="text-[11px] font-bold text-gray-500 uppercase">Tổng số đầu máy</p>
+                    <h3 id="statTotal" class="text-2xl font-extrabold text-gray-800 mt-1">0</h3>
+                </div>
+                <div data-cat="running" class="stat-card bg-white p-3 rounded-xl border-l-4 border-emerald-500 shadow-sm cursor-pointer hover:shadow-md transition">
+                    <p class="text-[11px] font-bold text-gray-500 uppercase">Đang vận dụng</p>
+                    <h3 id="statRunning" class="text-2xl font-extrabold text-emerald-600 mt-1">0</h3>
+                </div>
+                <div data-cat="maintenance" class="stat-card bg-white p-3 rounded-xl border-l-4 border-amber-400 shadow-sm cursor-pointer hover:shadow-md transition">
+                    <p class="text-[11px] font-bold text-gray-500 uppercase">Bảo dưỡng & sửa chữa</p>
+                    <h3 id="statMaintenance" class="text-2xl font-extrabold text-amber-600 mt-1">0</h3>
+                </div>
+                <div data-cat="lt" class="stat-card bg-white p-3 rounded-xl border-l-4 border-orange-500 shadow-sm cursor-pointer hover:shadow-md transition">
+                    <p class="text-[11px] font-bold text-gray-500 uppercase">Lâm tu / SC đột xuất (LT)</p>
+                    <h3 id="statLT" class="text-2xl font-extrabold text-orange-600 mt-1">0</h3>
+                </div>
+            </div>
+
+            <!-- Bộ lọc (dính khi cuộn) -->
+            <div class="bg-white p-3 rounded-xl shadow-sm mb-4 space-y-2 sticky top-[56px] z-30">
+                <input type="search" id="searchInput" placeholder="🔍 Tìm số hiệu (VD: D19E-901)..." autocomplete="off"
+                    class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 font-medium">
+                <div class="grid grid-cols-2 gap-2">
+                    <select id="seriesFilter" class="px-3 py-2 border rounded-lg text-xs bg-gray-50 font-semibold"><option value="ALL">Tất cả dòng máy</option></select>
+                    <select id="statusFilter" class="px-3 py-2 border rounded-lg text-xs bg-gray-50 font-semibold"><option value="ALL">Tất cả trạng thái / Cấp</option></select>
+                </div>
+            </div>
+
+            <div id="locoGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+        </main>
+
+        <!-- Nút thêm nổi -->
+        <button id="addBtn" type="button" aria-label="Thêm đầu máy" class="fixed bottom-5 right-4 z-40 w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-3xl font-bold shadow-xl">+</button>
+
+        <footer class="bg-white border-t py-3 text-center text-[11px] text-gray-500 shadow-inner">
+            <p>Hệ thống Quản lý Đầu máy Diesel (v6.0) | Bản quyền © 2026 thuộc về <strong class="text-indigo-900">Triệu Việt Phương</strong>.</p>
+        </footer>
+    </div>
+
+    <!-- MODAL THÊM ĐẦU MÁY -->
+    <div id="addModal" class="modal-backdrop fixed inset-0 bg-black/60 hidden items-center justify-center p-3 z-50">
+        <div class="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl">
+            <h3 class="text-base font-bold mb-3 text-indigo-900">➕ Thêm đầu máy mới</h3>
+            <form id="addForm">
+                <div class="mb-3">
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Số hiệu (dòng máy tự nhận theo số hiệu):</label>
+                    <input type="text" id="newLocoNumber" required maxlength="20" autocomplete="off" placeholder="VD: D13E-716" class="w-full px-3 py-2 border rounded-lg text-sm font-bold uppercase">
+                    <p id="newLocoHint" class="text-[11px] text-gray-500 mt-1 min-h-[1rem]"></p>
+                </div>
+                <div class="mb-3">
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Trạng thái ban đầu:</label>
+                    <select id="newLocoStatus" class="w-full px-3 py-2 border rounded-lg text-xs bg-white font-bold text-indigo-700"></select>
+                </div>
+                <div class="flex justify-end gap-2">
+                    <button type="button" data-close="addModal" class="px-3.5 py-2 bg-gray-200 text-gray-700 rounded-lg text-xs">Hủy</button>
+                    <button type="submit" class="px-3.5 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold">Tạo đầu máy</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL CẬP NHẬT / SỬA NHẬT KÝ (một luồng duy nhất) -->
+    <div id="updateModal" class="modal-backdrop fixed inset-0 bg-black/60 hidden items-center justify-center p-3 z-[60]">
+        <div class="bg-white rounded-xl max-w-sm w-full p-4 shadow-2xl max-h-[92vh] overflow-y-auto">
+            <h3 id="uTitle" class="text-sm font-bold mb-3 text-indigo-900">Cập nhật</h3>
+            <form id="updateForm">
+                <div class="grid grid-cols-2 gap-2 mb-2.5">
+                    <div>
+                        <label class="block text-[10px] font-semibold text-gray-700 mb-1">Cấp / Trạng thái:</label>
+                        <select id="uStatus" class="w-full px-2.5 py-2 border-2 border-indigo-400 rounded text-xs font-extrabold bg-indigo-50 text-indigo-900"></select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-semibold text-gray-700 mb-1">Ngày:</label>
+                        <input type="date" id="uDate" required class="w-full px-2.5 py-1.5 border rounded text-xs font-semibold">
+                    </div>
+                </div>
+                <div class="mb-2.5">
+                    <label class="block text-[10px] font-semibold text-gray-700 mb-1">Thợ / Đội thực hiện:</label>
+                    <input type="text" id="uTeam" list="teamList" maxlength="80" autocomplete="off" placeholder="Đội / Thợ thực hiện" class="w-full px-2.5 py-1.5 border rounded text-xs">
+                    <datalist id="teamList"></datalist>
+                </div>
+                <div class="mb-2.5">
+                    <label class="block text-[10px] font-semibold text-gray-700 mb-1">Nội dung bảo dưỡng / Lỗi sửa:</label>
+                    <textarea id="uNote" rows="3" maxlength="1000" placeholder="Nội dung công việc, nguyên nhân, địa điểm..." class="w-full px-2.5 py-1.5 border rounded text-xs"></textarea>
+                    <div id="noteChips" class="flex flex-wrap gap-1 mt-1"></div>
+                </div>
+                <div class="mb-3 pt-1 border-t">
+                    <label class="block text-[10px] font-semibold text-gray-700 mb-1">📷 Ảnh đính kèm (tùy chọn):</label>
+                    <input type="file" id="uFile" accept="image/*" capture="environment" class="hidden">
+                    <div class="flex items-center gap-2">
+                        <button type="button" id="uPickBtn" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-1.5 rounded text-xs font-bold">📷 Chụp / chọn ảnh</button>
+                        <button type="button" id="uRemoveImg" class="hidden text-red-500 text-xs font-bold">Xóa ảnh</button>
+                        <span id="uImgInfo" class="text-[11px] text-gray-500 italic">Chưa có ảnh</span>
+                    </div>
+                    <div id="uPreviewBox" class="hidden mt-2 w-24 h-24 border rounded overflow-hidden bg-gray-100">
+                        <img id="uPreviewImg" alt="Xem trước" class="w-full h-full object-cover">
+                    </div>
+                </div>
+                <div class="flex justify-end gap-2">
+                    <button type="button" data-close="updateModal" class="px-3 py-1.5 bg-gray-200 text-gray-700 rounded text-xs">Hủy</button>
+                    <button type="submit" id="uSubmit" class="px-3.5 py-1.5 bg-indigo-600 text-white rounded text-xs font-bold shadow">💾 Lưu</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL LỊCH SỬ -->
+    <div id="historyModal" class="modal-backdrop fixed inset-0 bg-black/60 hidden items-center justify-center p-3 z-50">
+        <div class="bg-white rounded-xl max-w-md w-full shadow-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div class="px-5 py-3 border-b flex justify-between items-center">
+                <div>
+                    <h3 id="hTitle" class="text-base font-bold text-indigo-900">Lịch sử đầu máy</h3>
+                    <p class="text-[10px] text-gray-500">Nhật ký bảo dưỡng, sửa chữa (mới nhất ở trên)</p>
+                </div>
+                <button data-close="historyModal" aria-label="Đóng" class="bg-gray-100 hover:bg-gray-200 w-8 h-8 rounded-full font-bold text-xl">&times;</button>
+            </div>
+            <div class="p-4 overflow-y-auto flex-1 space-y-2.5">
+                <button id="hAddBtn" type="button" class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow">➕ Thêm ghi nhận / đổi trạng thái</button>
+                <div id="hList" class="space-y-2.5"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL XEM ẢNH -->
+    <div id="imageModal" class="modal-backdrop fixed inset-0 bg-black/80 hidden items-center justify-center p-3 z-[70]">
+        <div class="relative max-w-2xl w-full bg-white rounded-xl p-3 shadow-2xl flex flex-col items-center">
+            <div class="w-full flex justify-between items-center mb-2 pb-1 border-b">
+                <h3 class="text-xs font-bold text-indigo-900">🖼️ Ảnh đính kèm</h3>
+                <button data-close="imageModal" aria-label="Đóng" class="text-gray-500 hover:text-black font-extrabold text-xl px-2">&times;</button>
+            </div>
+            <p id="fullImgInfo" class="text-xs text-gray-500 py-6">Đang tải ảnh…</p>
+            <img id="fullImg" alt="Ảnh đính kèm" class="hidden max-h-[75vh] max-w-full object-contain rounded border bg-gray-50">
+        </div>
+    </div>
+
+    <!-- MODAL CÀI ĐẶT TRẠNG THÁI (quản trị) -->
+    <div id="statusModal" class="modal-backdrop fixed inset-0 bg-black/60 hidden items-center justify-center p-3 z-50">
+        <div class="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl max-h-[90vh] flex flex-col">
+            <h3 class="text-base font-bold text-indigo-900 mb-1">⚙️ Cấp trạng thái</h3>
+            <p class="text-xs text-gray-500 mb-3">Mỗi cấp thuộc một nhóm để thống kê chính xác (không còn đoán theo ký tự).</p>
+            <form id="sForm" class="space-y-2 mb-3 bg-gray-50 p-2 rounded-lg border">
+                <input type="hidden" id="sEditing" value="">
+                <div class="flex gap-2">
+                    <input type="text" id="sKey" required maxlength="40" placeholder="Ký tự (VD: Rt-LT)" class="w-1/3 px-2.5 py-1.5 border rounded text-xs font-bold">
+                    <input type="text" id="sDesc" maxlength="120" placeholder="Mô tả (tùy chọn)" class="w-2/3 px-2.5 py-1.5 border rounded text-xs">
+                </div>
+                <div class="flex gap-2">
+                    <select id="sGroup" class="flex-1 px-2.5 py-1.5 border rounded text-xs bg-white font-semibold">
+                        <option value="running">Nhóm: Đang vận dụng</option>
+                        <option value="maintenance" selected>Nhóm: Bảo dưỡng & sửa chữa</option>
+                        <option value="lt">Nhóm: Lâm tu / SC đột xuất (LT)</option>
+                    </select>
+                    <button type="submit" id="sSubmit" class="bg-indigo-600 text-white px-3 py-1.5 rounded text-xs font-bold shadow">➕ Thêm</button>
+                </div>
+            </form>
+            <div id="sList" class="flex-1 overflow-y-auto space-y-1.5 border p-2 rounded-lg bg-gray-50 mb-3"></div>
+            <div class="flex justify-end pt-2 border-t">
+                <button type="button" data-close="statusModal" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold">Đóng</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL XUẤT EXCEL -->
+    <div id="exportModal" class="modal-backdrop fixed inset-0 bg-black/60 hidden items-center justify-center p-3 z-50">
+        <div class="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-3 border-b pb-2">
+                <h3 class="text-base font-bold text-indigo-900">📊 Xuất báo cáo</h3>
+                <button data-close="exportModal" aria-label="Đóng" class="text-gray-400 hover:text-gray-700 font-bold text-xl">&times;</button>
+            </div>
+            <div class="space-y-3.5 mb-4 text-xs">
+                <div>
+                    <label class="block font-bold text-gray-700 mb-1">1. Phạm vi đầu máy:</label>
+                    <select id="exportScope" class="w-full px-3 py-2 border rounded-lg bg-gray-50 font-semibold text-indigo-900">
+                        <option value="ALL">Toàn bộ danh sách đầu máy</option>
+                        <option value="FILTERED">Theo bộ lọc đang hiển thị</option>
+                        <option value="SINGLE">Chỉ 1 đầu máy cụ thể</option>
+                    </select>
+                    <select id="exportSingleLoco" class="hidden w-full px-3 py-2 border rounded-lg bg-white font-bold mt-2"></select>
+                </div>
+                <div>
+                    <label class="block font-bold text-gray-700 mb-1">2. Kiểu báo cáo:</label>
+                    <div class="space-y-1.5">
+                        <label class="flex items-start gap-2 p-2.5 border-2 border-indigo-200 rounded-lg cursor-pointer bg-indigo-50/40">
+                            <input type="radio" name="exportMode" value="grouped_clean" checked class="mt-0.5">
+                            <div><span class="font-bold text-indigo-900 block">✨ Lịch sử gọn theo từng đầu máy</span>
+                            <span class="text-[11px] text-gray-600">Gom theo đầu máy, xếp theo thời gian tăng dần.</span></div>
+                        </label>
+                        <label class="flex items-start gap-2 p-2.5 border rounded-lg cursor-pointer bg-gray-50">
+                            <input type="radio" name="exportMode" value="latest" class="mt-0.5">
+                            <div><span class="font-bold text-gray-800 block">Bảng trạng thái hiện tại</span>
+                            <span class="text-[11px] text-gray-500">Mỗi đầu máy 1 dòng.</span></div>
+                        </label>
+                        <label class="flex items-start gap-2 p-2.5 border rounded-lg cursor-pointer bg-gray-50">
+                            <input type="radio" name="exportMode" value="both" class="mt-0.5">
+                            <div><span class="font-bold text-gray-800 block">Đầy đủ 2 sheet (.xlsx)</span>
+                            <span class="text-[11px] text-gray-500">Sheet 1: lịch sử | Sheet 2: trạng thái hiện tại.</span></div>
+                        </label>
+                    </div>
+                </div>
+                <div id="exportDateBox" class="bg-indigo-50/70 p-2.5 rounded-lg border border-indigo-100">
+                    <label class="block font-bold text-indigo-900 mb-1.5">Lọc lịch sử theo ngày (tùy chọn):</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div><span class="block text-[10px] text-gray-600 mb-0.5">Từ ngày:</span><input type="date" id="exportFromDate" class="w-full px-2 py-1.5 border rounded bg-white text-xs"></div>
+                        <div><span class="block text-[10px] text-gray-600 mb-0.5">Đến ngày:</span><input type="date" id="exportToDate" class="w-full px-2 py-1.5 border rounded bg-white text-xs"></div>
+                    </div>
+                </div>
+                <div>
+                    <label class="block font-bold text-gray-700 mb-1">3. Định dạng:</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="flex items-center gap-2 p-2 border rounded-lg cursor-pointer bg-gray-50 font-semibold"><input type="radio" name="exportFormat" value="xlsx" checked><span>Excel (.xlsx)</span></label>
+                        <label class="flex items-center gap-2 p-2 border rounded-lg cursor-pointer bg-gray-50 font-semibold"><input type="radio" name="exportFormat" value="csv"><span>Văn bản (.csv)</span></label>
+                    </div>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-2 border-t">
+                <button type="button" data-close="exportModal" class="px-3.5 py-2 bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold">Hủy</button>
+                <button type="button" id="exportRunBtn" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow">⬇️ Tải báo cáo</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL CHUYỂN DỮ LIỆU TỪ v5.9 (quản trị) -->
+    <div id="migrateModal" class="modal-backdrop fixed inset-0 bg-black/60 hidden items-center justify-center p-3 z-50">
+        <div class="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h3 class="text-base font-bold text-indigo-900 mb-1">📥 Chuyển dữ liệu từ v5.9</h3>
+            <p class="text-xs text-gray-600 mb-3">Đọc dữ liệu cũ (nút <b>locomotives</b>, <b>statusConfigs</b>) rồi ghi sang cấu trúc v6. <b>Dữ liệu cũ được giữ nguyên, không bị xóa.</b> Có thể chạy lại nhiều lần mà không bị nhân đôi.</p>
+            <pre id="migLog" class="text-[11px] bg-gray-50 border rounded-lg p-2.5 min-h-[4rem] whitespace-pre-wrap text-gray-700">Bấm "1. Đọc dữ liệu cũ" để bắt đầu.</pre>
+            <div class="flex flex-wrap justify-end gap-2 pt-3">
+                <button type="button" data-close="migrateModal" class="px-3.5 py-2 bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold">Đóng</button>
+                <button type="button" id="migReadBtn" class="px-3.5 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold">1. Đọc dữ liệu cũ</button>
+                <button type="button" id="migRunBtn" disabled class="px-3.5 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold disabled:opacity-40">2. Ghi sang v6</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // =====================================================================
+        //  CẤU HÌNH FIREBASE
+        //  An toàn dữ liệu nằm ở Realtime Database Rules + Authentication
+        //  (xem database.rules.json), không nằm ở việc giấu khóa này.
+        // =====================================================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyBkrhho3ypPh5t9rX-E21jp9ciUVRp-Jcw",
+            authDomain: "quanlydaumay.firebaseapp.com",
+            databaseURL: "https://quanlydaumay-default-rtdb.firebaseio.com",
+            projectId: "quanlydaumay",
+            storageBucket: "quanlydaumay.firebasestorage.app",
+            messagingSenderId: "740314355852",
+            appId: "1:740314355852:web:65893c774a115b2b2ac3a9",
+            measurementId: "G-KXP2X3DEJR"
+        };
+        const CONFIG_MISSING = /^DÁN/.test(firebaseConfig.apiKey);
+        const ROOT = 'v6'; // v5.9 dùng nút gốc "locomotives"/"statusConfigs" - giữ nguyên để làm bản sao lưu
+
+        // =====================================================================
+        //  PHẦN THUẦN (không đụng DOM/Firebase) - có thể kiểm thử riêng
+        // =====================================================================
+        // <PURE>
+        const DEFAULT_STATUSES = [
+            { key: 'Đang vận dụng', desc: 'Đang vận dụng', group: 'running' },
+            { key: 'Ro', desc: 'Ro - BD Thường xuyên', group: 'maintenance' },
+            { key: 'Rt', desc: 'Rt - BD Định kỳ', group: 'maintenance' },
+            { key: 'Rt-LT', desc: 'Rt-LT - BD Định kỳ + SC Đột xuất', group: 'lt' },
+            { key: 'LT', desc: 'LT - SC Đột xuất', group: 'lt' },
+            { key: 'R1', desc: 'R1 - SC Cấp 1', group: 'maintenance' },
+            { key: 'R1-LT', desc: 'R1-LT - SC Cấp 1 + SC Đột xuất', group: 'lt' },
+            { key: 'R2', desc: 'R2 - SC Cấp 2', group: 'maintenance' },
+            { key: 'R2-LT', desc: 'R2-LT - SC Cấp 2 + SC Đột xuất', group: 'lt' },
+            { key: 'Rk', desc: 'Rk - SC Trung tu', group: 'maintenance' },
+            { key: 'Rđ', desc: 'Rđ - SC Đại tu', group: 'maintenance' }
+        ];
+        const LOCO_RE = /^D(9|13|18|19)E-\d{3}$/;
+
+        function esc(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+        function safeKey(s) { return String(s).trim().replace(/[.#$\[\]\/]/g, '_'); }
+        function pad2(n) { return String(n).padStart(2, '0'); }
+
+        // Ngày lưu dạng ISO yyyy-mm-dd, hiển thị dd/mm/yy
+        function isoToVN(iso) {
+            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+            return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : (iso || '');
+        }
+        function isoToDash(iso) {
+            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+            return m ? `${m[3]}-${m[2]}-${m[1]}` : (iso || '');
+        }
+        function vnToIso(str) {
+            if (!str) return '';
+            const t = String(str).trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+            const p = t.split(/[\/\-.]/);
+            if (p.length !== 3) return '';
+            let d = parseInt(p[0], 10), m = parseInt(p[1], 10), y = parseInt(p[2], 10);
+            if (isNaN(d) || isNaN(m) || isNaN(y)) return '';
+            if (y < 100) y += 2000;
+            if (y < 2000 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return '';
+            return `${y}-${pad2(m)}-${pad2(d)}`;
+        }
+        function seriesFromNumber(n) {
+            const m = /^D(\d{1,2})E-/i.exec(n || '');
+            return m ? 'D' + m[1] + 'E' : '';
+        }
+        function groupOfLegacy(key) {
+            const u = String(key || '').toUpperCase();
+            if (u.includes('ĐANG VẬN DỤNG') || u.includes('RUNNING')) return 'running';
+            if (u.includes('LT')) return 'lt';
+            return 'maintenance';
+        }
+
+        // Giải mã dữ liệu v5.9 (nhiều tên trường khác nhau qua các phiên bản)
+        function legacyStatus(o) {
+            const raw = (o && (o.status || o.level || o.newLevel || o.trangThai)) || 'Đang vận dụng';
+            return raw === 'RUNNING' ? 'Đang vận dụng' : raw;
+        }
+        function legacyNote(o) { return (o && (o.content || o.desc || o.reason || o.noiDung || o.detail || o.note)) || ''; }
+        function legacyTeam(o) { return (o && (o.team || o.worker || o.doiThucHien || o.tho)) || ''; }
+        function toArray(raw) {
+            if (!raw) return [];
+            if (Array.isArray(raw)) return raw.filter(x => x != null);
+            return Object.keys(raw).map(k => raw[k]).filter(x => x != null);
+        }
+
+        function sortHist(list, asc) {
+            const s = [...list].sort((a, b) => {
+                const da = a.date || '', dbb = b.date || '';
+                if (da !== dbb) return da < dbb ? -1 : 1;
+                return (a.at || 0) - (b.at || 0);
+            });
+            return asc ? s : s.reverse();
+        }
+
+        // Kế hoạch di chuyển: trả về các "gói" ghi nhỏ (mỗi đầu máy 1 gói) + thống kê
+        function buildMigrationPlan(rawLocos, rawStatuses, ctx) {
+            const R = ctx.root;
+            const statusMap = new Map();
+            const oldStatuses = toArray(rawStatuses);
+            (oldStatuses.length ? oldStatuses : DEFAULT_STATUSES).forEach((s, i) => {
+                if (s && s.key) statusMap.set(s.key, { key: s.key, desc: s.desc || s.key, group: groupOfLegacy(s.key), order: i });
+            });
+            const chunks = [];
+            const stats = { locos: 0, histories: 0, images: 0, skipped: 0 };
+            const seenIds = new Set();
+
+            toArray(rawLocos).forEach(loc => {
+                const number = String(loc.number || '').trim().toUpperCase();
+                if (!number) { stats.skipped++; return; }
+                const id = safeKey(number);
+                if (seenIds.has(id)) { stats.skipped++; return; }
+                seenIds.add(id);
+
+                const hist = toArray(loc.history); // v5.9: mới nhất ở đầu mảng
+                const n = hist.length;
+                const up = {};
+
+                hist.forEach((h, i) => {
+                    const st = legacyStatus(h);
+                    if (!statusMap.has(st)) statusMap.set(st, { key: st, desc: st, group: groupOfLegacy(st), order: statusMap.size });
+                    const date = vnToIso(h.date);
+                    const base = date ? Date.parse(date + 'T00:00:00Z') : ctx.nowMs - 365 * 86400000;
+                    const hid = `${id}_m${String(i).padStart(4, '0')}`; // cố định => chạy lại không bị nhân đôi
+                    const rec = { date, status: st, team: legacyTeam(h), note: legacyNote(h), by: ctx.uid, byName: 'Dữ liệu v5.9', at: base + (n - i) };
+                    const img = h.image && String(h.image);
+                    if (img && img.startsWith('data:image/') && img.length < 200000) {
+                        rec.hasImage = true;
+                        up[`${R}/images/${hid}`] = img;
+                        stats.images++;
+                    }
+                    up[`${R}/histories/${id}/${hid}`] = rec;
+                    stats.histories++;
+                });
+
+                const status = legacyStatus(loc);
+                if (!statusMap.has(status)) statusMap.set(status, { key: status, desc: status, group: groupOfLegacy(status), order: statusMap.size });
+                const fields = {
+                    number,
+                    series: loc.series || seriesFromNumber(number) || 'KHÁC',
+                    status,
+                    lastDate: vnToIso(loc.lastDate) || (hist[0] ? vnToIso(hist[0].date) : ''),
+                    note: legacyNote(loc),
+                    updatedAt: ctx.ts,
+                    updatedBy: 'Dữ liệu v5.9',
+                    updatedByUid: ctx.uid
+                };
+                Object.keys(fields).forEach(k => { up[`${R}/locomotives/${id}/${k}`] = fields[k]; });
+                chunks.push({ label: number, updates: up });
+                stats.locos++;
+            });
+
+            const su = {};
+            statusMap.forEach(s => { su[`${R}/statusConfigs/${safeKey(s.key)}`] = s; });
+            chunks.unshift({ label: 'Cấp trạng thái', updates: su });
+            return { chunks, stats, statusCount: statusMap.size };
+        }
+
+        // ---- Xuất báo cáo ----
+        function cleanText(txt) {
+            if (!txt) return '';
+            const t = String(txt).replace(/\r?\n+/g, '; ').trim();
+            return ['Khởi tạo đầu máy mới', 'Khởi tạo ban đầu', 'Khởi tạo đầu máy', 'Thay đổi trạng thái trực tiếp'].includes(t) ? '' : t;
+        }
+        function cleanTeam(team) {
+            const t = String(team || '').trim();
+            return (t === 'Trực tiếp sửa' || t === 'Đội Kỹ Thuật') ? '' : t;
+        }
+        // Chống chèn công thức khi mở CSV bằng Excel (ô bắt đầu bằng = + @ hoặc - dính liền chữ)
+        function neutralizeCsv(v) {
+            const s = String(v == null ? '' : v);
+            return /^([=+@\t\r]|-(?!\s))/.test(s) ? "'" + s : s;
+        }
+        function buildGroupedRows(locos, histMap, fromIso, toIso) {
+            const rows = [['Đầu máy', 'Chi tiết lịch sử bảo dưỡng / sửa chữa']];
+            let any = false;
+            locos.forEach(loc => {
+                const list = sortHist((histMap[loc.id] || []).filter(h => !h.deleted), true);
+                const items = [];
+                list.forEach(h => {
+                    if (fromIso && h.date && h.date < fromIso) return;
+                    if (toIso && h.date && h.date > toIso) return;
+                    const note = cleanText(h.note), team = cleanTeam(h.team);
+                    if (!h.date && !note) return;
+                    let line = `- Ngày ${isoToDash(h.date)}`;
+                    if (h.status && h.status !== 'Đang vận dụng') line += ` [${h.status}]`;
+                    line += `: ${note || h.status}`;
+                    if (team) line += ` (${team})`;
+                    items.push(line);
+                });
+                if (!items.length && !fromIso && !toIso && (loc.lastDate || cleanText(loc.note))) {
+                    let line = loc.lastDate ? `- Ngày ${isoToDash(loc.lastDate)}` : '- Hiện tại';
+                    if (loc.status && loc.status !== 'Đang vận dụng') line += ` [${loc.status}]`;
+                    line += `: ${cleanText(loc.note) || loc.status}`;
+                    items.push(line);
+                }
+                if (items.length) {
+                    any = true;
+                    items.forEach((t, i) => rows.push([i === 0 ? `${loc.number}:` : '', t]));
+                    rows.push(['', '']);
+                }
+            });
+            return { rows, any };
+        }
+        function buildLatestRows(locos) {
+            const rows = [['STT', 'Số hiệu', 'Trạng thái hiện tại', 'Ngày cập nhật', 'Nội dung gần nhất']];
+            locos.forEach((loc, i) => rows.push([i + 1, loc.number || '', loc.status || '', isoToDash(loc.lastDate), cleanText(loc.note)]));
+            return rows;
+        }
+        // </PURE>
+
+        // =====================================================================
+        //  KHỞI TẠO
+        // =====================================================================
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        const auth = firebase.auth();
+        const TS = firebase.database.ServerValue.TIMESTAMP;
+        const $ = id => document.getElementById(id);
+
+        let currentUser = null, isAdmin = false, dataLoaded = false, isOnline = true;
+        let locos = [];
+        let statusConfigs = DEFAULT_STATUSES.map((s, i) => ({ ...s, order: i }));
+        let selectedCategory = 'ALL', showDeleted = false, lastFiltered = [];
+        let activeLocoId = null, editingHistId = null, histList = [];
+        let img = { action: 'keep', data: '' };
+        let refs = {}, histRef = null, seededStatuses = false, statusSig = '';
+        let serverOffset = 0, migPlan = null;
+
+        function lsGet(k, fb) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch (e) { return fb; } }
+        function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* bỏ qua */ } }
+        let seen = lsGet('qldm_seen', null);
+
+        function userName() { return currentUser ? (currentUser.displayName || (currentUser.email || '').split('@')[0] || 'Người dùng') : ''; }
+        function isoToday() { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+
+        function toast(msg, type) {
+            const el = document.createElement('div');
+            el.className = 'px-3.5 py-2 rounded-lg text-xs font-semibold shadow-lg text-white text-center ' + (type === 'error' ? 'bg-red-600' : 'bg-emerald-600');
+            el.textContent = msg;
+            $('toastBox').appendChild(el);
+            setTimeout(() => el.remove(), type === 'error' ? 4500 : 2800);
+        }
+        function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+        // ---- Modal ----
+        const MODAL_ORDER = ['imageModal', 'updateModal', 'migrateModal', 'exportModal', 'statusModal', 'addModal', 'historyModal'];
+        function openModal(id) { const m = $(id); m.classList.remove('hidden'); m.classList.add('flex'); }
+        function closeModal(id) {
+            const m = $(id); m.classList.add('hidden'); m.classList.remove('flex');
+            if (id === 'historyModal') detachHist();
+            if (id === 'imageModal') { $('fullImg').src = ''; }
+        }
+        document.addEventListener('click', e => {
+            const closer = e.target.closest('[data-close]');
+            if (closer) { closeModal(closer.dataset.close); return; }
+            if (e.target.classList && e.target.classList.contains('modal-backdrop')) closeModal(e.target.id);
+            if (!e.target.closest('#menuPanel') && !e.target.closest('#menuBtn')) $('menuPanel').classList.add('hidden');
+        });
+        document.addEventListener('keydown', e => {
+            if (e.key !== 'Escape') return;
+            const top = MODAL_ORDER.find(id => !$(id).classList.contains('hidden'));
+            if (top) closeModal(top);
+        });
+
+        // ---- Ghi dữ liệu ----
+        function guardWrite() {
+            if (!currentUser) { toast('Chưa đăng nhập', 'error'); return false; }
+            if (!dataLoaded) { toast('Đang tải dữ liệu, vui lòng đợi giây lát…', 'error'); return false; }
+            return true;
+        }
+        // Chỉ ghi đúng các đường dẫn thay đổi (multi-path update) - không bao giờ ghi đè cả cây
+        function commit(up, okMsg) {
+            const p = db.ref().update(up);
+            p.then(() => { if (okMsg && isOnline) toast(okMsg); })
+             .catch(err => toast('Ghi thất bại: ' + err.message, 'error'));
+            if (!isOnline) { toast('Đang ngoại tuyến: thay đổi sẽ tự gửi khi có mạng (đừng đóng ứng dụng)'); return Promise.resolve(); }
+            return p.catch(() => { /* đã báo lỗi ở trên */ });
+        }
+        function setLocoFields(up, id, obj) { Object.keys(obj).forEach(k => { up[`${ROOT}/locomotives/${id}/${k}`] = obj[k]; }); }
+
+        // ---- Đồng hồ máy chủ + trạng thái kết nối ----
+        db.ref('.info/serverTimeOffset').on('value', s => { serverOffset = s.val() || 0; });
+        db.ref('.info/connected').on('value', snap => {
+            isOnline = snap.val() === true;
+            const el = $('cloudStatusText');
+            if (isOnline) { el.textContent = '🟢 Đã kết nối đám mây (Realtime)'; el.className = 'text-[10px] text-emerald-300 font-semibold'; }
+            else { el.textContent = '🔴 Ngoại tuyến'; el.className = 'text-[10px] text-red-300 font-semibold animate-pulse'; }
+        });
+
+        // =====================================================================
+        //  ĐĂNG NHẬP
+        // =====================================================================
+        const AUTH_ERRORS = {
+            'auth/invalid-credential': 'Sai email hoặc mật khẩu.',
+            'auth/wrong-password': 'Sai mật khẩu.',
+            'auth/user-not-found': 'Không có tài khoản này.',
+            'auth/invalid-email': 'Email không hợp lệ.',
+            'auth/too-many-requests': 'Thử quá nhiều lần, vui lòng đợi ít phút.',
+            'auth/network-request-failed': 'Không có kết nối mạng.',
+            'auth/user-disabled': 'Tài khoản đã bị khóa.'
+        };
+        if (CONFIG_MISSING) $('loginError').textContent = '⚠️ Chưa dán apiKey Firebase vào đầu phần <script> của index.html.';
+        $('loginForm').addEventListener('submit', e => {
+            e.preventDefault();
+            if (CONFIG_MISSING) { $('loginError').textContent = '⚠️ Chưa dán apiKey Firebase vào index.html.'; return; }
+            const btn = $('loginBtn'); btn.disabled = true; btn.textContent = 'Đang đăng nhập…'; $('loginError').textContent = '';
+            auth.signInWithEmailAndPassword($('loginEmail').value.trim(), $('loginPass').value)
+                .catch(err => { $('loginError').textContent = AUTH_ERRORS[err.code] || ('Lỗi: ' + err.message); })
+                .finally(() => { btn.disabled = false; btn.textContent = 'Đăng nhập'; });
+        });
+
+        auth.onAuthStateChanged(async user => {
+            if (!user) {
+                currentUser = null; isAdmin = false; dataLoaded = false; locos = [];
+                stopListeners();
+                $('appView').classList.add('hidden'); $('appView').classList.remove('flex');
+                $('loginView').classList.remove('hidden');
+                $('loginPass').value = '';
+                return;
+            }
+            currentUser = user;
+            try { isAdmin = (await db.ref('admins/' + user.uid).once('value')).val() === true; } catch (e) { isAdmin = false; }
+            $('loginView').classList.add('hidden');
+            $('appView').classList.remove('hidden'); $('appView').classList.add('flex');
+            document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', !isAdmin));
+            $('menuUser').textContent = `${userName()}${isAdmin ? ' · Quản trị' : ''} (${user.email || ''})`;
+            startListeners();
+        });
+
+        function startListeners() {
+            stopListeners();
+            refs.locos = db.ref(`${ROOT}/locomotives`);
+            refs.locos.on('value', snap => {
+                const v = snap.val() || {};
+                locos = Object.keys(v).map(id => ({ id, ...v[id] }));
+                dataLoaded = true;
+                if (seen === null) { // lần đầu trên thiết bị này: coi như đã xem hết
+                    seen = {}; locos.forEach(l => { seen[l.id] = l.updatedAt || 0; }); lsSet('qldm_seen', seen);
+                }
+                refreshSeriesFilter();
+                render();
+            }, err => toast('Không đọc được dữ liệu: ' + err.message, 'error'));
+
+            refs.status = db.ref(`${ROOT}/statusConfigs`);
+            refs.status.on('value', snap => {
+                const v = snap.val();
+                if (!v) {
+                    statusConfigs = DEFAULT_STATUSES.map((s, i) => ({ ...s, order: i }));
+                    if (isAdmin && !seededStatuses) {
+                        seededStatuses = true;
+                        const up = {};
+                        statusConfigs.forEach(s => { up[`${ROOT}/statusConfigs/${safeKey(s.key)}`] = s; });
+                        db.ref().update(up).catch(() => {});
+                    }
+                } else {
+                    statusConfigs = Object.keys(v).map(k => v[k]).sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+                }
+                populateStatusSelects();
+                render();
+                if (!$('statusModal').classList.contains('hidden')) renderStatusList();
+            });
+        }
+        function stopListeners() {
+            Object.values(refs).forEach(r => r && r.off());
+            refs = {}; detachHist();
+        }
+        function detachHist() { if (histRef) { histRef.off(); histRef = null; } }
+
+        // =====================================================================
+        //  HIỂN THỊ DANH SÁCH
+        // =====================================================================
+        const GROUP_STYLE = {
+            running: { border: 'border-emerald-500', badge: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
+            maintenance: { border: 'border-amber-400', badge: 'bg-amber-100 text-amber-800 border-amber-300' },
+            lt: { border: 'border-orange-500', badge: 'bg-orange-100 text-orange-800 border-orange-300' }
+        };
+        function groupOf(key) {
+            const s = statusConfigs.find(x => x.key === key);
+            return s ? s.group : groupOfLegacy(key);
+        }
+        function activeLocos() { return locos.filter(l => showDeleted || !l.deleted); }
+        function naturalSort(a, b) {
+            return (a.series || '').localeCompare(b.series || '', undefined, { numeric: true }) ||
+                   (a.number || '').localeCompare(b.number || '', undefined, { numeric: true });
+        }
+        function isUnread(loc) {
+            return !!loc.updatedAt && currentUser && loc.updatedByUid !== currentUser.uid && loc.updatedAt > ((seen && seen[loc.id]) || 0);
+        }
+        function markSeen(id) {
+            const loc = locos.find(l => l.id === id);
+            if (!loc || !seen) return;
+            seen[id] = loc.updatedAt || 0; lsSet('qldm_seen', seen);
+        }
+
+        function updateStats() {
+            const base = locos.filter(l => !l.deleted);
+            const c = { running: 0, maintenance: 0, lt: 0 };
+            base.forEach(l => { c[groupOf(l.status)]++; });
+            $('statTotal').textContent = base.length;
+            $('statRunning').textContent = c.running;
+            $('statMaintenance').textContent = c.maintenance;
+            $('statLT').textContent = c.lt;
+        }
+
+        function filterLocos() {
+            const kw = $('searchInput').value.trim().toLowerCase();
+            const series = $('seriesFilter').value, status = $('statusFilter').value;
+            return activeLocos().filter(l => {
+                if (selectedCategory !== 'ALL' && groupOf(l.status) !== selectedCategory) return false;
+                if (series !== 'ALL' && l.series !== series) return false;
+                if (status !== 'ALL' && l.status !== status) return false;
+                return !kw || (l.number || '').toLowerCase().includes(kw);
+            }).sort(naturalSort);
+        }
+
+        function render() {
+            updateStats();
+            const box = $('locoGrid');
+            if (!dataLoaded) { box.innerHTML = '<div class="col-span-full text-center text-gray-500 py-10 bg-white rounded-xl text-xs">Đang tải dữ liệu…</div>'; return; }
+            const data = filterLocos();
+            lastFiltered = data;
+            if (!data.length) {
+                const empty = !locos.length && isAdmin
+                    ? 'Chưa có dữ liệu v6. Vào menu ⋮ → <b>Chuyển dữ liệu từ v5.9</b> hoặc bấm nút + để thêm đầu máy.'
+                    : 'Không tìm thấy đầu máy nào phù hợp.';
+                box.innerHTML = `<div class="col-span-full text-center text-gray-500 py-10 bg-white rounded-xl text-xs px-4">${empty}</div>`;
+                return;
+            }
+            box.innerHTML = data.map(loc => {
+                const g = GROUP_STYLE[groupOf(loc.status)] || GROUP_STYLE.maintenance;
+                const unread = isUnread(loc);
+                const meta = [isoToVN(loc.lastDate) ? '📅 ' + isoToVN(loc.lastDate) : '', loc.updatedBy ? '👤 ' + loc.updatedBy : ''].filter(Boolean).join(' · ');
+                const histBtn = unread
+                    ? `<button data-act="history" data-id="${esc(loc.id)}" class="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold border border-red-200 animate-pulse">🔥 Có cập nhật mới</button>`
+                    : `<button data-act="history" data-id="${esc(loc.id)}" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200">📜 Lịch sử</button>`;
+                const adminBtn = !isAdmin ? '' : (loc.deleted
+                    ? `<button data-act="restore" data-id="${esc(loc.id)}" class="text-emerald-600 text-xs font-bold">Khôi phục</button>`
+                    : `<button data-act="delete" data-id="${esc(loc.id)}" class="text-red-500 text-xs font-bold">Xóa</button>`);
+                return `
+                <div class="bg-white border-l-4 ${g.border} p-4 rounded-xl shadow-sm flex flex-col justify-between ${loc.deleted ? 'opacity-50' : ''}">
+                    <div>
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="px-2 py-0.5 bg-gray-100 text-gray-700 text-[11px] font-bold rounded">${esc(loc.series)}</span>
+                            <span class="px-2.5 py-0.5 text-xs font-bold rounded-full border ${g.badge}">${esc(loc.status)}</span>
+                        </div>
+                        <h3 class="text-xl font-extrabold text-gray-800">${esc(loc.number)}${loc.deleted ? ' <span class="text-xs text-red-500">(đã xóa)</span>' : ''}</h3>
+                        <p class="text-[11px] text-gray-500 mt-0.5">${esc(meta)}</p>
+                        ${loc.note ? `<p class="text-xs text-gray-700 mt-1.5 line-clamp-2">${esc(loc.note)}</p>` : ''}
+                    </div>
+                    <div class="mt-3 pt-3 border-t flex justify-between items-center gap-2">
+                        ${histBtn}
+                        <div class="flex items-center gap-3">
+                            <button data-act="update" data-id="${esc(loc.id)}" class="text-indigo-600 hover:text-indigo-800 text-xs font-bold">✏️ Cập nhật</button>
+                            ${adminBtn}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function refreshSeriesFilter() {
+            const sel = $('seriesFilter'), cur = sel.value || 'ALL';
+            const list = [...new Set(locos.map(l => l.series).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+            sel.innerHTML = '<option value="ALL">Tất cả dòng máy</option>' + list.map(s => `<option value="${esc(s)}">Dòng ${esc(s)}</option>`).join('');
+            sel.value = list.includes(cur) ? cur : 'ALL';
+        }
+
+        // Chỉ dựng lại các ô chọn khi danh sách cấp thật sự đổi, và giữ nguyên lựa chọn hiện tại
+        function populateStatusSelects() {
+            const sig = JSON.stringify(statusConfigs);
+            if (sig === statusSig) return;
+            statusSig = sig;
+            const opts = statusConfigs.map(s => `<option value="${esc(s.key)}">${esc(s.desc && s.desc !== s.key ? s.desc : s.key)}</option>`).join('');
+            ['newLocoStatus', 'uStatus'].forEach(id => {
+                const el = $(id), cur = el.value;
+                el.innerHTML = opts;
+                if (cur && statusConfigs.some(s => s.key === cur)) el.value = cur;
+            });
+            const f = $('statusFilter'), cur = f.value || 'ALL';
+            f.innerHTML = '<option value="ALL">Tất cả trạng thái / Cấp</option>' + opts;
+            f.value = statusConfigs.some(s => s.key === cur) ? cur : 'ALL';
+        }
+        function ensureOption(sel, key) {
+            if (key && !Array.from(sel.options).some(o => o.value === key)) {
+                const o = document.createElement('option'); o.value = key; o.textContent = key + ' (cũ)'; sel.appendChild(o);
+            }
+        }
+
+        // Sự kiện danh sách (event delegation - không còn onclick nội tuyến)
+        $('locoGrid').addEventListener('click', e => {
+            const b = e.target.closest('[data-act]'); if (!b) return;
+            const id = b.dataset.id;
+            if (b.dataset.act === 'history') openHistory(id);
+            else if (b.dataset.act === 'update') openUpdate(id, null);
+            else if (b.dataset.act === 'delete') softDeleteLoco(id, true);
+            else if (b.dataset.act === 'restore') softDeleteLoco(id, false);
+        });
+        document.querySelectorAll('.stat-card').forEach(card => card.addEventListener('click', () => {
+            selectedCategory = card.dataset.cat;
+            document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('ring-2', 'ring-indigo-600', 'bg-indigo-50'));
+            if (selectedCategory !== 'ALL') card.classList.add('ring-2', 'ring-indigo-600', 'bg-indigo-50');
+            render();
+        }));
+        $('searchInput').addEventListener('input', debounce(render, 200));
+        $('seriesFilter').addEventListener('change', render);
+        $('statusFilter').addEventListener('change', render);
+
+        // Menu
+        $('menuBtn').addEventListener('click', () => $('menuPanel').classList.toggle('hidden'));
+        $('menuPanel').addEventListener('click', e => {
+            const b = e.target.closest('[data-menu]'); if (!b) return;
+            $('menuPanel').classList.add('hidden');
+            const m = b.dataset.menu;
+            if (m === 'export') openExport();
+            else if (m === 'status' && isAdmin) { renderStatusList(); resetStatusForm(); openModal('statusModal'); }
+            else if (m === 'migrate' && isAdmin) { migPlan = null; $('migRunBtn').disabled = true; $('migLog').textContent = 'Bấm "1. Đọc dữ liệu cũ" để bắt đầu.'; openModal('migrateModal'); }
+            else if (m === 'trash' && isAdmin) { showDeleted = !showDeleted; b.textContent = showDeleted ? '🗑️ Ẩn đầu máy đã xóa' : '🗑️ Hiện đầu máy đã xóa'; render(); }
+            else if (m === 'logout') { if (confirm('Đăng xuất khỏi ứng dụng?')) auth.signOut(); }
+        });
+
+        // =====================================================================
+        //  THÊM ĐẦU MÁY
+        // =====================================================================
+        $('addBtn').addEventListener('click', () => {
+            $('newLocoNumber').value = ''; $('newLocoHint').textContent = '';
+            openModal('addModal'); setTimeout(() => $('newLocoNumber').focus(), 50);
+        });
+        $('newLocoNumber').addEventListener('input', () => {
+            const n = $('newLocoNumber').value.trim().toUpperCase();
+            const h = $('newLocoHint');
+            if (!n) { h.textContent = ''; return; }
+            if (LOCO_RE.test(n)) { h.className = 'text-[11px] text-emerald-600 mt-1'; h.textContent = '✔ Dòng ' + seriesFromNumber(n); }
+            else { h.className = 'text-[11px] text-red-500 mt-1'; h.textContent = 'Định dạng: D9E / D13E / D18E / D19E + "-" + 3 chữ số'; }
+        });
+        $('addForm').addEventListener('submit', e => {
+            e.preventDefault();
+            if (!guardWrite()) return;
+            const number = $('newLocoNumber').value.trim().toUpperCase();
+            if (!LOCO_RE.test(number)) { toast('Số hiệu không đúng định dạng (VD: D13E-716)', 'error'); return; }
+            const id = safeKey(number);
+            const exist = locos.find(l => l.id === id);
+            if (exist) { toast(exist.deleted ? 'Số hiệu này đang nằm trong mục đã xóa (quản trị có thể khôi phục)' : 'Số hiệu này đã tồn tại!', 'error'); return; }
+            const status = $('newLocoStatus').value, date = isoToday(), uid = currentUser.uid, name = userName();
+            const hid = db.ref(`${ROOT}/histories/${id}`).push().key;
+            const up = {};
+            setLocoFields(up, id, { number, series: seriesFromNumber(number), status, lastDate: date, note: '', updatedAt: TS, updatedBy: name, updatedByUid: uid });
+            up[`${ROOT}/histories/${id}/${hid}`] = { date, status, team: '', note: 'Khởi tạo đầu máy', by: uid, byName: name, at: TS };
+            closeModal('addModal');
+            commit(up, '✅ Đã tạo đầu máy mới');
+        });
+
+        function softDeleteLoco(id, del) {
+            if (!isAdmin || !guardWrite()) return;
+            const loc = locos.find(l => l.id === id); if (!loc) return;
+            if (del && !confirm(`Xóa đầu máy ${loc.number}? (Có thể khôi phục lại trong mục "Hiện đầu máy đã xóa")`)) return;
+            commit({ [`${ROOT}/locomotives/${id}/deleted`]: del }, del ? '🗑️ Đã chuyển vào mục đã xóa' : '♻️ Đã khôi phục đầu máy');
+        }
+
+        // =====================================================================
+        //  CẬP NHẬT / SỬA NHẬT KÝ
+        // =====================================================================
+        const NOTE_CHIPS = ['Bảo dưỡng định kỳ', 'Chảy dầu', 'Không nổ được máy', 'Thay lọc', 'Kiểm tra hệ thống phanh', 'Xuất xưởng, đưa vào vận dụng'];
+        $('noteChips').innerHTML = NOTE_CHIPS.map(t => `<button type="button" data-chip="${esc(t)}" class="px-2 py-0.5 bg-gray-100 hover:bg-indigo-100 rounded-full text-[10px] text-gray-700 border">${esc(t)}</button>`).join('');
+        $('noteChips').addEventListener('click', e => {
+            const c = e.target.closest('[data-chip]'); if (!c) return;
+            const ta = $('uNote'); ta.value = (ta.value ? ta.value.replace(/[;\s]+$/, '') + '; ' : '') + c.dataset.chip;
+        });
+        function refreshTeamList() { $('teamList').innerHTML = lsGet('qldm_teams', []).map(t => `<option value="${esc(t)}"></option>`).join(''); }
+        function rememberTeam(t) {
+            if (!t) return;
+            const list = lsGet('qldm_teams', []).filter(x => x !== t); list.unshift(t); lsSet('qldm_teams', list.slice(0, 30));
+        }
+
+        function resetImageUI() {
+            img = { action: 'keep', data: '' };
+            $('uFile').value = ''; $('uPreviewBox').classList.add('hidden'); $('uPreviewImg').src = '';
+            $('uRemoveImg').classList.add('hidden'); $('uImgInfo').textContent = 'Chưa có ảnh';
+        }
+        function showImagePreview(src, info) {
+            $('uPreviewImg').src = src; $('uPreviewBox').classList.remove('hidden');
+            $('uRemoveImg').classList.remove('hidden'); $('uImgInfo').textContent = info;
+        }
+
+        function openUpdate(locoId, hid) {
+            const loc = locos.find(l => l.id === locoId); if (!loc) return;
+            activeLocoId = locoId; editingHistId = hid;
+            refreshTeamList(); resetImageUI();
+            ensureOption($('uStatus'), loc.status);
+            if (!hid) {
+                $('uTitle').textContent = `Cập nhật ${loc.number}`;
+                $('uStatus').value = loc.status; $('uDate').value = isoToday(); $('uTeam').value = ''; $('uNote').value = '';
+            } else {
+                const h = histList.find(x => x.id === hid); if (!h) return;
+                ensureOption($('uStatus'), h.status);
+                $('uTitle').textContent = `Sửa nhật ký ${loc.number}`;
+                $('uStatus').value = h.status; $('uDate').value = h.date || isoToday(); $('uTeam').value = h.team || ''; $('uNote').value = h.note || '';
+                if (h.hasImage) {
+                    $('uImgInfo').textContent = 'Đang tải ảnh…';
+                    db.ref(`${ROOT}/images/${hid}`).once('value').then(s => {
+                        const d = s.val();
+                        if (editingHistId === hid && img.action === 'keep' && typeof d === 'string' && d.startsWith('data:image/')) showImagePreview(d, 'Đã có 1 ảnh');
+                    }).catch(() => { $('uImgInfo').textContent = 'Không tải được ảnh'; });
+                }
+            }
+            openModal('updateModal');
+        }
+        $('uPickBtn').addEventListener('click', () => $('uFile').click());
+        $('uRemoveImg').addEventListener('click', () => {
+            img = { action: 'remove', data: '' };
+            $('uFile').value = ''; $('uPreviewBox').classList.add('hidden'); $('uRemoveImg').classList.add('hidden'); $('uImgInfo').textContent = 'Sẽ xóa ảnh khi lưu';
+        });
+        $('uFile').addEventListener('change', async e => {
+            const f = e.target.files[0]; if (!f) return;
+            try {
+                $('uImgInfo').textContent = 'Đang nén ảnh…';
+                const data = await compressImage(f);
+                img = { action: 'set', data };
+                showImagePreview(data, `Ảnh mới (~${Math.round(data.length * 0.75 / 1024)} KB)`);
+            } catch (err) { toast(err.message, 'error'); $('uImgInfo').textContent = 'Chưa có ảnh'; }
+        });
+
+        // Nén ảnh xuống ≤ 800px, giảm dần chất lượng cho tới khi < 190.000 ký tự (giới hạn của Rules)
+        function compressImage(file) {
+            return new Promise((resolve, reject) => {
+                const url = URL.createObjectURL(file);
+                const im = new Image();
+                im.onload = () => {
+                    URL.revokeObjectURL(url);
+                    const MAX = 800; let w = im.width, h = im.height;
+                    if (Math.max(w, h) > MAX) { const r = MAX / Math.max(w, h); w = Math.round(w * r); h = Math.round(h * r); }
+                    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+                    cv.getContext('2d').drawImage(im, 0, 0, w, h);
+                    for (const q of [0.65, 0.5, 0.4, 0.3, 0.2]) {
+                        const d = cv.toDataURL('image/jpeg', q);
+                        if (d.length < 190000) return resolve(d);
+                    }
+                    reject(new Error('Ảnh quá lớn, hãy chụp lại ở độ phân giải thấp hơn'));
+                };
+                im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Không đọc được ảnh này')); };
+                im.src = url;
+            });
+        }
+
+        // Cập nhật đầu máy theo bản ghi mới nhất còn hiệu lực
+        function recomputeLocoUpdates(id, list) {
+            const up = {}, latest = sortHist(list.filter(h => !h.deleted), false)[0], loc = locos.find(l => l.id === id);
+            if (latest && loc && (loc.status !== latest.status || (loc.lastDate || '') !== (latest.date || '') || (loc.note || '') !== (latest.note || ''))) {
+                setLocoFields(up, id, { status: latest.status, lastDate: latest.date || '', note: latest.note || '', updatedAt: TS, updatedBy: userName(), updatedByUid: currentUser.uid });
+            }
+            return up;
+        }
+
+        $('updateForm').addEventListener('submit', e => {
+            e.preventDefault();
+            if (!guardWrite()) return;
+            const loc = locos.find(l => l.id === activeLocoId); if (!loc) return;
+            const status = $('uStatus').value, date = $('uDate').value, team = $('uTeam').value.trim(), note = $('uNote').value.trim();
+            if (!date) { toast('Hãy chọn ngày', 'error'); return; }
+            if (!editingHistId && status === loc.status && !note && img.action !== 'set') { toast('Hãy đổi trạng thái hoặc nhập nội dung', 'error'); return; }
+            const up = {}, uid = currentUser.uid, name = userName();
+            if (!editingHistId) {
+                const hid = db.ref(`${ROOT}/histories/${activeLocoId}`).push().key;
+                const rec = { date, status, team, note, by: uid, byName: name, at: TS };
+                if (img.action === 'set') { rec.hasImage = true; up[`${ROOT}/images/${hid}`] = img.data; }
+                up[`${ROOT}/histories/${activeLocoId}/${hid}`] = rec;
+                // Ghi nhận bổ sung ngày cũ thì không được ghi đè trạng thái hiện tại của đầu máy
+                if (!loc.lastDate || date >= loc.lastDate) setLocoFields(up, activeLocoId, { status, lastDate: date, note, updatedAt: TS, updatedBy: name, updatedByUid: uid });
+            } else {
+                const base = `${ROOT}/histories/${activeLocoId}/${editingHistId}`;
+                Object.assign(up, { [base + '/date']: date, [base + '/status']: status, [base + '/team']: team, [base + '/note']: note, [base + '/editedBy']: name, [base + '/editedAt']: TS });
+                if (img.action === 'set') { up[base + '/hasImage'] = true; up[`${ROOT}/images/${editingHistId}`] = img.data; }
+                else if (img.action === 'remove') { up[base + '/hasImage'] = false; up[`${ROOT}/images/${editingHistId}`] = null; }
+                const next = histList.map(h => h.id === editingHistId ? { ...h, date, status, team, note } : h);
+                Object.assign(up, recomputeLocoUpdates(activeLocoId, next));
+            }
+            rememberTeam(team);
+            closeModal('updateModal');
+            commit(up, '✅ Đã lưu và đồng bộ');
+        });
+
+        // =====================================================================
+        //  LỊCH SỬ
+        // =====================================================================
+        function openHistory(id) {
+            const loc = locos.find(l => l.id === id); if (!loc) return;
+            activeLocoId = id; markSeen(id); render();
+            $('hTitle').textContent = `Lịch sử ${loc.number}`;
+            histList = []; renderHistory();
+            detachHist();
+            histRef = db.ref(`${ROOT}/histories/${id}`);
+            histRef.on('value', snap => {
+                const v = snap.val() || {};
+                histList = Object.keys(v).map(k => ({ id: k, ...v[k] }));
+                renderHistory();
+            }, err => toast('Không đọc được lịch sử: ' + err.message, 'error'));
+            openModal('historyModal');
+        }
+        function canEditHist(h) { return currentUser && (isAdmin || h.by === currentUser.uid); }
+        function renderHistory() {
+            const box = $('hList');
+            const live = sortHist(histList.filter(h => !h.deleted), false);
+            if (!live.length) { box.innerHTML = '<p class="text-center text-gray-400 py-4 text-xs">Chưa có nhật ký.</p>'; return; }
+            box.innerHTML = live.map(h => {
+                const g = GROUP_STYLE[groupOf(h.status)] || GROUP_STYLE.maintenance;
+                const meta = [h.byName ? 'bởi ' + h.byName : '', h.editedBy ? 'sửa bởi ' + h.editedBy : ''].filter(Boolean).join(' · ');
+                return `
+                <div class="bg-white p-3 rounded-xl border space-y-1.5 shadow-sm text-xs">
+                    <div class="flex justify-between items-center">
+                        <span class="font-bold text-indigo-900 bg-gray-100 px-2 py-0.5 rounded">📅 ${esc(isoToVN(h.date) || 'N/A')}</span>
+                        <span class="px-2 py-0.5 rounded text-[11px] font-extrabold border ${g.badge}">${esc(h.status)}</span>
+                    </div>
+                    ${h.team ? `<p class="text-gray-700 font-semibold">👷 ${esc(h.team)}</p>` : ''}
+                    <p class="text-gray-800 font-medium whitespace-pre-line">📝 ${esc(h.note || 'Không có nội dung')}</p>
+                    ${meta ? `<p class="text-[10px] text-gray-400">${esc(meta)}</p>` : ''}
+                    <div class="flex justify-between items-center pt-1 border-t mt-1">
+                        <div>${h.hasImage ? `<button data-hact="img" data-hid="${esc(h.id)}" class="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-[11px] font-bold border border-indigo-200">🖼️ Xem ảnh</button>` : ''}</div>
+                        <div class="flex gap-3">
+                            ${canEditHist(h) ? `<button data-hact="edit" data-hid="${esc(h.id)}" class="text-indigo-600 font-bold">✏️ Sửa</button><button data-hact="del" data-hid="${esc(h.id)}" class="text-red-500 font-bold">Xóa</button>` : ''}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+        $('hAddBtn').addEventListener('click', () => openUpdate(activeLocoId, null));
+        $('hList').addEventListener('click', e => {
+            const b = e.target.closest('[data-hact]'); if (!b) return;
+            const hid = b.dataset.hid;
+            if (b.dataset.hact === 'edit') openUpdate(activeLocoId, hid);
+            else if (b.dataset.hact === 'img') viewImage(hid);
+            else if (b.dataset.hact === 'del') deleteHist(hid);
+        });
+        function deleteHist(hid) {
+            if (!guardWrite()) return;
+            const h = histList.find(x => x.id === hid); if (!h || !canEditHist(h)) return;
+            if (!confirm('Xóa bản ghi nhật ký này?')) return;
+            const up = { [`${ROOT}/histories/${activeLocoId}/${hid}/deleted`]: true, [`${ROOT}/histories/${activeLocoId}/${hid}/deletedBy`]: userName() };
+            const next = histList.map(x => x.id === hid ? { ...x, deleted: true } : x);
+            Object.assign(up, recomputeLocoUpdates(activeLocoId, next));
+            commit(up, '🗑️ Đã xóa bản ghi');
+        }
+        function viewImage(hid) {
+            const im = $('fullImg'), info = $('fullImgInfo');
+            im.classList.add('hidden'); info.classList.remove('hidden'); info.textContent = 'Đang tải ảnh…';
+            openModal('imageModal');
+            db.ref(`${ROOT}/images/${hid}`).once('value').then(s => {
+                const d = s.val();
+                if (typeof d === 'string' && d.startsWith('data:image/')) { im.src = d; im.classList.remove('hidden'); info.classList.add('hidden'); }
+                else info.textContent = 'Không có ảnh.';
+            }).catch(err => { info.textContent = 'Lỗi tải ảnh: ' + err.message; });
+        }
+
+        // =====================================================================
+        //  CÀI ĐẶT CẤP TRẠNG THÁI (quản trị)
+        // =====================================================================
+        const GROUP_LABEL = { running: 'Đang vận dụng', maintenance: 'BD & sửa chữa', lt: 'LT' };
+        function renderStatusList() {
+            $('sList').innerHTML = statusConfigs.map(s => `
+                <div class="flex justify-between items-center bg-white p-2 rounded border text-xs shadow-sm">
+                    <div class="min-w-0">
+                        <b class="text-indigo-900 px-1.5 py-0.5 bg-indigo-50 rounded border">${esc(s.key)}</b>
+                        <span class="text-gray-700">${esc(s.desc || '')}</span>
+                        <span class="text-[10px] text-gray-400">· ${esc(GROUP_LABEL[s.group] || s.group)}</span>
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                        <button data-sact="edit" data-key="${esc(s.key)}" class="text-indigo-600 px-2 py-1 font-bold">✏️</button>
+                        <button data-sact="del" data-key="${esc(s.key)}" class="text-red-500 px-2 py-1">🗑️</button>
+                    </div>
+                </div>`).join('');
+        }
+        function resetStatusForm() {
+            $('sEditing').value = ''; $('sKey').value = ''; $('sKey').readOnly = false; $('sDesc').value = '';
+            $('sGroup').value = 'maintenance'; $('sSubmit').textContent = '➕ Thêm';
+        }
+        $('sList').addEventListener('click', e => {
+            const b = e.target.closest('[data-sact]'); if (!b) return;
+            const s = statusConfigs.find(x => x.key === b.dataset.key); if (!s) return;
+            if (b.dataset.sact === 'edit') {
+                $('sEditing').value = s.key; $('sKey').value = s.key; $('sKey').readOnly = true; // không đổi tên mã để khỏi mồ côi dữ liệu
+                $('sDesc').value = s.desc || ''; $('sGroup').value = s.group; $('sSubmit').textContent = '💾 Lưu';
+            } else {
+                const used = locos.filter(l => l.status === s.key).length;
+                if (used) { toast(`Không xóa được: đang có ${used} đầu máy ở cấp "${s.key}"`, 'error'); return; }
+                if (!confirm(`Xóa cấp "${s.key}"?`)) return;
+                db.ref(`${ROOT}/statusConfigs/${safeKey(s.key)}`).remove().catch(err => toast('Lỗi: ' + err.message, 'error'));
+            }
+        });
+        $('sForm').addEventListener('submit', e => {
+            e.preventDefault();
+            if (!isAdmin) return;
+            const key = $('sKey').value.trim(), editing = $('sEditing').value;
+            if (!key) return;
+            if (!editing && statusConfigs.some(s => s.key.toLowerCase() === key.toLowerCase())) { toast('Mã trạng thái này đã tồn tại!', 'error'); return; }
+            const old = statusConfigs.find(s => s.key === editing);
+            const rec = { key, desc: $('sDesc').value.trim() || key, group: $('sGroup').value, order: old ? (old.order ?? 0) : statusConfigs.length };
+            db.ref(`${ROOT}/statusConfigs/${safeKey(key)}`).set(rec)
+                .then(() => { toast('✅ Đã lưu cấp trạng thái'); resetStatusForm(); })
+                .catch(err => toast('Lỗi: ' + err.message, 'error'));
+        });
+
+        // =====================================================================
+        //  XUẤT BÁO CÁO
+        // =====================================================================
+        function openExport() {
+            $('exportSingleLoco').innerHTML = locos.filter(l => !l.deleted).sort(naturalSort)
+                .map(l => `<option value="${esc(l.id)}">${esc(l.number)} (${esc(l.status)})</option>`).join('');
+            toggleExportUI(); openModal('exportModal');
+        }
+        function toggleExportUI() {
+            $('exportSingleLoco').classList.toggle('hidden', $('exportScope').value !== 'SINGLE');
+            const mode = document.querySelector('input[name="exportMode"]:checked').value;
+            $('exportDateBox').classList.toggle('hidden', mode === 'latest');
+        }
+        $('exportScope').addEventListener('change', toggleExportUI);
+        document.querySelectorAll('input[name="exportMode"]').forEach(r => r.addEventListener('change', toggleExportUI));
+
+        function loadSheetJS() {
+            if (window.XLSX) return Promise.resolve();
+            return new Promise((res, rej) => {
+                const s = document.createElement('script');
+                s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+                s.onload = res; s.onerror = () => rej(new Error('Không tải được thư viện Excel (cần có mạng)'));
+                document.head.appendChild(s);
+            });
+        }
+        function autoFitColumns(ws, aoa) {
+            let maxCols = 0; aoa.forEach(r => { if (r.length > maxCols) maxCols = r.length; });
+            const w = [];
+            for (let c = 0; c < maxCols; c++) {
+                let m = 8; aoa.forEach(r => { const v = r[c] != null ? String(r[c]) : ''; if (v.length > m) m = v.length; });
+                w.push({ wch: Math.min(m + 3, 75) });
+            }
+            ws['!cols'] = w;
+        }
+        $('exportRunBtn').addEventListener('click', async () => {
+            const btn = $('exportRunBtn');
+            const scope = $('exportScope').value;
+            const mode = document.querySelector('input[name="exportMode"]:checked').value;
+            const format = document.querySelector('input[name="exportFormat"]:checked').value;
+            const from = $('exportFromDate').value, to = $('exportToDate').value;
+
+            let target = scope === 'ALL' ? locos.filter(l => !l.deleted)
+                : scope === 'FILTERED' ? [...lastFiltered]
+                : locos.filter(l => l.id === $('exportSingleLoco').value);
+            target.sort(naturalSort);
+            if (!target.length) { toast('Không có đầu máy nào phù hợp để xuất', 'error'); return; }
+
+            btn.disabled = true; btn.textContent = 'Đang tạo…';
+            try {
+                const histMap = {};
+                if (mode !== 'latest') {
+                    const v = (await db.ref(`${ROOT}/histories`).once('value')).val() || {};
+                    Object.keys(v).forEach(id => { histMap[id] = Object.keys(v[id]).map(k => ({ id: k, ...v[id][k] })); });
+                }
+                const grouped = buildGroupedRows(target, histMap, from, to);
+                const latest = buildLatestRows(target);
+                if (mode !== 'latest' && !grouped.any) { toast('Không có dữ liệu lịch sử trong khoảng đã chọn', 'error'); return; }
+
+                const tag = isoToday().split('-').reverse().join('-');
+                const base = `Bao_Cao_Dau_May${scope === 'SINGLE' ? '_' + target[0].number : ''}_${tag}`;
+
+                if (format === 'csv') {
+                    const rows = mode === 'latest' ? latest : grouped.rows;
+                    const csv = '﻿' + rows.map(r => r.map(c => {
+                        const v = neutralizeCsv(c).replace(/"/g, '""');
+                        return /[;"\n]/.test(v) ? `"${v}"` : v;
+                    }).join(';')).join('\n');
+                    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+                    const a = document.createElement('a'); a.href = url; a.download = base + '.csv';
+                    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+                } else {
+                    await loadSheetJS();
+                    const wb = XLSX.utils.book_new();
+                    const add = (rows, name) => { const ws = XLSX.utils.aoa_to_sheet(rows); autoFitColumns(ws, rows); XLSX.utils.book_append_sheet(wb, ws, name); };
+                    if (mode === 'grouped_clean') add(grouped.rows, 'LichSuDauMay');
+                    else if (mode === 'latest') add(latest, 'TrangThaiHienTai');
+                    else { add(grouped.rows, 'LichSuDauMay'); add(latest, 'TrangThaiHienTai'); }
+                    XLSX.writeFile(wb, base + '.xlsx');
+                }
+                closeModal('exportModal');
+            } catch (err) {
+                toast('Xuất thất bại: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false; btn.textContent = '⬇️ Tải báo cáo';
+            }
+        });
+
+        // =====================================================================
+        //  CHUYỂN DỮ LIỆU TỪ v5.9 (quản trị)
+        // =====================================================================
+        function migLog(t) { $('migLog').textContent = t; }
+        $('migReadBtn').addEventListener('click', async () => {
+            if (!isAdmin) return;
+            migLog('Đang đọc dữ liệu v5.9…'); $('migRunBtn').disabled = true;
+            try {
+                const [a, b] = await Promise.all([db.ref('locomotives').once('value'), db.ref('statusConfigs').once('value')]);
+                migPlan = buildMigrationPlan(a.val(), b.val(), { root: ROOT, uid: currentUser.uid, nowMs: Date.now(), ts: TS });
+                const s = migPlan.stats;
+                migLog(`Đọc xong:\n• ${s.locos} đầu máy\n• ${s.histories} bản ghi lịch sử\n• ${s.images} ảnh\n• ${migPlan.statusCount} cấp trạng thái\n• Bỏ qua ${s.skipped} mục lỗi/trùng\n\nBấm "2. Ghi sang v6" để chuyển.`);
+                $('migRunBtn').disabled = s.locos === 0;
+            } catch (err) {
+                migLog('Lỗi đọc dữ liệu cũ: ' + err.message + '\n(Kiểm tra Rules đã cho quản trị đọc nút cũ chưa.)');
+            }
+        });
+        $('migRunBtn').addEventListener('click', async () => {
+            if (!isAdmin || !migPlan) return;
+            if (!confirm('Ghi dữ liệu sang cấu trúc v6? Đầu máy trùng số hiệu trong v6 sẽ được cập nhật theo dữ liệu cũ.')) return;
+            $('migRunBtn').disabled = true; $('migReadBtn').disabled = true;
+            const total = migPlan.chunks.length; let done = 0, fail = 0, log = '';
+            for (const ch of migPlan.chunks) {
+                try { await db.ref().update(ch.updates); } catch (err) { fail++; log += `✗ ${ch.label}: ${err.message}\n`; }
+                done++; migLog(`Đang ghi ${done}/${total}…\n${log}`);
+            }
+            migLog(`Hoàn tất: ${total - fail}/${total} gói thành công.\n${log}${fail ? '\nBấm "2. Ghi sang v6" để thử lại phần lỗi.' : '\nDữ liệu cũ vẫn còn nguyên ở nút gốc.'}`);
+            $('migReadBtn').disabled = false; $('migRunBtn').disabled = fail === 0;
+        });
+
+        // PWA: chạy ngoại tuyến phần giao diện
+        if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+            window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+        }
+    </script>
+</body>
+</html>

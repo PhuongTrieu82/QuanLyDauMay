@@ -1,0 +1,86 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "admins": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": false
+      }
+    },
+
+    "locomotives": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).val() === true",
+      ".write": false
+    },
+    "statusConfigs": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).val() === true",
+      ".write": false
+    },
+
+    "v6": {
+      "locomotives": {
+        ".read": "auth != null",
+        "$id": {
+          ".write": "auth != null && newData.exists() && (data.child('deleted').val() === newData.child('deleted').val() || root.child('admins').child(auth.uid).val() === true)",
+          ".validate": "newData.hasChildren(['number', 'series', 'status', 'lastDate'])",
+          "number":       { ".validate": "newData.isString() && newData.val().length <= 20" },
+          "series":       { ".validate": "newData.isString() && newData.val().length <= 10" },
+          "status":       { ".validate": "newData.isString() && newData.val().length <= 40" },
+          "lastDate":     { ".validate": "newData.isString() && newData.val().length <= 10" },
+          "note":         { ".validate": "newData.isString() && newData.val().length <= 1000" },
+          "updatedAt":    { ".validate": "newData.isNumber()" },
+          "updatedBy":    { ".validate": "newData.isString() && newData.val().length <= 80" },
+          "updatedByUid": { ".validate": "newData.isString()" },
+          "deleted":      { ".validate": "newData.isBoolean()" },
+          "$other":       { ".validate": false }
+        }
+      },
+
+      "histories": {
+        ".read": "auth != null",
+        "$loco": {
+          "$hid": {
+            ".write": "auth != null && newData.exists() && (!data.exists() || data.child('by').val() === auth.uid || root.child('admins').child(auth.uid).val() === true)",
+            ".validate": "newData.hasChildren(['date', 'status', 'by', 'at']) && (data.exists() ? newData.child('by').val() === data.child('by').val() : newData.child('by').val() === auth.uid)",
+            "date":      { ".validate": "newData.isString() && newData.val().length <= 10" },
+            "status":    { ".validate": "newData.isString() && newData.val().length <= 40" },
+            "team":      { ".validate": "newData.isString() && newData.val().length <= 80" },
+            "note":      { ".validate": "newData.isString() && newData.val().length <= 2000" },
+            "by":        { ".validate": "newData.isString()" },
+            "byName":    { ".validate": "newData.isString() && newData.val().length <= 80" },
+            "at":        { ".validate": "newData.isNumber()" },
+            "hasImage":  { ".validate": "newData.isBoolean()" },
+            "deleted":   { ".validate": "newData.isBoolean()" },
+            "deletedBy": { ".validate": "newData.isString() && newData.val().length <= 80" },
+            "editedBy":  { ".validate": "newData.isString() && newData.val().length <= 80" },
+            "editedAt":  { ".validate": "newData.isNumber()" },
+            "$other":    { ".validate": false }
+          }
+        }
+      },
+
+      "images": {
+        ".read": "auth != null",
+        "$hid": {
+          ".write": "auth != null",
+          ".validate": "newData.isString() && newData.val().length < 200000 && newData.val().beginsWith('data:image/')"
+        }
+      },
+
+      "statusConfigs": {
+        ".read": "auth != null",
+        "$k": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
+          ".validate": "newData.hasChildren(['key', 'group']) && (newData.child('group').val() === 'running' || newData.child('group').val() === 'maintenance' || newData.child('group').val() === 'lt')",
+          "key":   { ".validate": "newData.isString() && newData.val().length <= 40" },
+          "desc":  { ".validate": "newData.isString() && newData.val().length <= 120" },
+          "group": { ".validate": "newData.isString()" },
+          "order": { ".validate": "newData.isNumber()" },
+          "$other": { ".validate": false }
+        }
+      }
+    }
+  }
+}
