@@ -327,7 +327,7 @@
             </div>
             <div class="space-y-2 pt-3 border-t">
                 <p class="text-xs font-bold text-gray-700">2. Khôi phục từ file JSON</p>
-                <p class="text-[11px] text-gray-500">Chế độ <b>gộp</b>: mục trùng được ghi đè theo file, mục khác <b>không bị xóa</b>.</p>
+                <p class="text-[11px] text-gray-500">Nhận cả <b>file sao lưu v6</b> lẫn <b>file dữ liệu bản cũ (v5.9)</b>. Chế độ <b>gộp</b>: mục trùng được ghi đè theo file, mục khác <b>không bị xóa</b>.</p>
                 <input type="file" id="bkFile" accept=".json,application/json" class="w-full text-xs">
                 <pre id="bkLog" class="text-[11px] bg-gray-50 border rounded-lg p-2.5 min-h-[3rem] whitespace-pre-wrap text-gray-700">Chọn file sao lưu để xem trước.</pre>
                 <button type="button" id="bkRestoreBtn" disabled class="w-full py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold disabled:opacity-40">♻️ Khôi phục vào hệ thống</button>
@@ -424,6 +424,7 @@
             return Object.keys(raw).map(k => raw[k]).filter(x => x != null);
         }
 
+        function hashStr(str) { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0; return h.toString(36); }
         function sortHist(list, asc) {
             const s = [...list].sort((a, b) => {
                 const da = a.date || '', dbb = b.date || '';
@@ -452,16 +453,20 @@
                 if (seenIds.has(id)) { stats.skipped++; return; }
                 seenIds.add(id);
 
-                const hist = toArray(loc.history); // v5.9: mới nhất ở đầu mảng
+                const hist = toArray(loc.history || loc.histories || loc.logs || loc.lichSu); // v5.9: mới nhất ở đầu mảng
                 const n = hist.length;
                 const up = {};
 
+                const occ = {};
                 hist.forEach((h, i) => {
                     const st = legacyStatus(h);
                     if (!statusMap.has(st)) statusMap.set(st, { key: st, desc: st, group: groupOfLegacy(st), order: statusMap.size });
                     const date = vnToIso(h.date);
                     const base = date ? Date.parse(date + 'T00:00:00Z') : ctx.nowMs - 365 * 86400000;
-                    const hid = `${id}_m${String(i).padStart(4, '0')}`; // cố định => chạy lại không bị nhân đôi
+                    // Mã theo NỘI DUNG (không theo vị trí) => chạy lại nhiều lần, hay thêm bản ghi mới ở file cũ, đều không bị nhân đôi
+                    const sig = [date, st, legacyTeam(h), legacyNote(h)].join('|');
+                    occ[sig] = (occ[sig] || 0) + 1;
+                    const hid = `${id}_c${hashStr(sig)}${occ[sig] > 1 ? 'x' + occ[sig] : ''}`;
                     const rec = { date, status: st, team: legacyTeam(h), note: legacyNote(h), by: ctx.uid, byName: 'Dữ liệu v5.9', at: base + (n - i) };
                     const img = h.image && String(h.image);
                     if (img && img.startsWith('data:image/') && img.length < 200000) {
@@ -486,7 +491,7 @@
                     updatedByUid: ctx.uid
                 };
                 Object.keys(fields).forEach(k => { up[`${R}/locomotives/${id}/${k}`] = fields[k]; });
-                chunks.push({ label: number, updates: up });
+                chunks.push({ label: number, id, updates: up });
                 stats.locos++;
             });
 
@@ -546,6 +551,22 @@
             const rows = [['STT', 'Số hiệu', 'Trạng thái hiện tại', 'Ngày cập nhật', 'Nội dung gần nhất']];
             locos.forEach((loc, i) => rows.push([i + 1, loc.number || '', loc.status || '', isoToDash(loc.lastDate), cleanText(loc.note)]));
             return rows;
+        }
+
+        // Nhận diện file JSON: bản sao lưu v6, hoặc dữ liệu bản cũ (mảng đầu máy / xuất từ Firebase / {locomotives:[...]})
+        function detectBackup(text) {
+            let d;
+            try { d = JSON.parse(text); } catch (e) { return { ok: false, error: 'File không phải JSON hợp lệ.' }; }
+            if (d && d.app === 'qldm' && d.locomotives && typeof d.locomotives === 'object') return { ok: true, kind: 'v6', data: d };
+            let locos = null, statuses = null;
+            if (Array.isArray(d)) locos = d;
+            else if (d && typeof d === 'object') {
+                if (d.locomotives) { locos = d.locomotives; statuses = d.statusConfigs; }
+                else if (d.data && d.data.locomotives) { locos = d.data.locomotives; statuses = d.data.statusConfigs; }
+                else { const v = Object.values(d); if (v.length && v.every(x => x && typeof x === 'object' && x.number)) locos = d; }
+            }
+            if (!locos || !toArray(locos).some(x => x && typeof x === 'object' && x.number)) return { ok: false, error: 'Không nhận dạng được cấu trúc file (không thấy danh sách đầu máy có trường "number").' };
+            return { ok: true, kind: 'legacy', locos, statuses };
         }
 
         // ---- Sao lưu / khôi phục JSON ----
@@ -1297,6 +1318,20 @@
         // =====================================================================
         //  CHUYỂN DỮ LIỆU TỪ v5.9 (quản trị)
         // =====================================================================
+        // Ghi 1 gói. Với dữ liệu bản cũ: ẩn (xóa mềm) các bản ghi do lần chuyển trước tạo bằng mã theo vị trí (_m0000...)
+        // để không bị trùng với bản ghi mới tạo theo nội dung.
+        async function writeChunk(ch, legacy) {
+            if (legacy && ch.id) {
+                const v = (await db.ref(`${ROOT}/histories/${ch.id}`).once('value')).val() || {};
+                Object.keys(v).forEach(k => {
+                    if (/_m\d{4}$/.test(k) && !v[k].deleted) {
+                        ch.updates[`${ROOT}/histories/${ch.id}/${k}/deleted`] = true;
+                        ch.updates[`${ROOT}/histories/${ch.id}/${k}/deletedBy`] = 'Chuyển lại dữ liệu';
+                    }
+                });
+            }
+            return db.ref().update(ch.updates);
+        }
         function migLog(t) { $('migLog').textContent = t; }
         $('migReadBtn').addEventListener('click', async () => {
             if (!isAdmin) return;
@@ -1317,7 +1352,7 @@
             $('migRunBtn').disabled = true; $('migReadBtn').disabled = true;
             const total = migPlan.chunks.length; let done = 0, fail = 0, log = '';
             for (const ch of migPlan.chunks) {
-                try { await db.ref().update(ch.updates); } catch (err) { fail++; log += `✗ ${ch.label}: ${err.message}\n`; }
+                try { await writeChunk(ch, true); } catch (err) { fail++; log += `✗ ${ch.label}: ${err.message}\n`; }
                 done++; migLog(`Đang ghi ${done}/${total}…\n${log}`);
             }
             migLog(`Hoàn tất: ${total - fail}/${total} gói thành công.\n${log}${fail ? '\nBấm "2. Ghi sang v6" để thử lại phần lỗi.' : '\nDữ liệu cũ vẫn còn nguyên ở nút gốc.'}`);
@@ -1370,11 +1405,19 @@
             bkPlan = null; $('bkRestoreBtn').disabled = true;
             const f = e.target.files[0]; if (!f) return;
             if (f.size > 60 * 1024 * 1024) { bkLog('File quá lớn (> 60 MB).'); return; }
-            const r = parseBackup(await f.text());
+            const r = detectBackup(await f.text());
             if (!r.ok) { bkLog('⚠️ ' + r.error); return; }
-            bkPlan = buildRestorePlan(r.data, { root: ROOT, uid: currentUser.uid, now: Date.now() });
+            let head;
+            if (r.kind === 'v6') {
+                bkPlan = buildRestorePlan(r.data, { root: ROOT, uid: currentUser.uid, now: Date.now() }); bkPlan.legacy = false;
+                head = `File sao lưu v6, lúc: ${r.data.exportedAt ? new Date(r.data.exportedAt).toLocaleString('vi-VN') : 'không rõ'}${r.data.exportedBy ? ' (bởi ' + r.data.exportedBy + ')' : ''}`;
+            } else {
+                bkPlan = buildMigrationPlan(r.locos, r.statuses, { root: ROOT, uid: currentUser.uid, nowMs: Date.now(), ts: TS }); bkPlan.legacy = true;
+                bkPlan.stats.statuses = bkPlan.statusCount;
+                head = 'File dữ liệu bản cũ (v5.9). Trạng thái hiện tại của đầu máy trong v6 sẽ được cập nhật theo file này.';
+            }
             const s = bkPlan.stats;
-            bkLog(`File sao lưu lúc: ${r.data.exportedAt ? new Date(r.data.exportedAt).toLocaleString('vi-VN') : 'không rõ'}${r.data.exportedBy ? ' (bởi ' + r.data.exportedBy + ')' : ''}\n• ${s.locos} đầu máy\n• ${s.histories} bản ghi lịch sử\n• ${s.images} ảnh\n• ${s.statuses} cấp trạng thái\n• Bỏ qua ${s.skipped} mục không hợp lệ`);
+            bkLog(`${head}\n• ${s.locos} đầu máy\n• ${s.histories} bản ghi lịch sử\n• ${s.images} ảnh\n• ${s.statuses} cấp trạng thái\n• Bỏ qua ${s.skipped} mục không hợp lệ`);
             $('bkRestoreBtn').disabled = (s.locos + s.histories) === 0;
         });
         $('bkRestoreBtn').addEventListener('click', async () => {
@@ -1383,7 +1426,7 @@
             $('bkRestoreBtn').disabled = true; $('bkFile').disabled = true;
             const total = bkPlan.chunks.length; let done = 0, fail = 0, log = '';
             for (const ch of bkPlan.chunks) {
-                try { await db.ref().update(ch.updates); } catch (err) { fail++; log += `✗ ${ch.label}: ${err.message}\n`; }
+                try { await writeChunk(ch, bkPlan.legacy); } catch (err) { fail++; log += `✗ ${ch.label}: ${err.message}\n`; }
                 done++; bkLog(`Đang ghi ${done}/${total}…\n${log}`);
             }
             bkLog(`Hoàn tất: ${total - fail}/${total} gói thành công.\n${log}`);
