@@ -1,6 +1,6 @@
 // Service worker v6.0 - cache vỏ ứng dụng để mở được khi mạng yếu.
 // Dữ liệu Firebase KHÔNG đi qua cache (luôn lấy trực tiếp từ đám mây).
-const CACHE = 'qldm-v6.0';
+const CACHE = 'qldm-v6.1';
 const SHELL = [
   './',
   'index.html',
@@ -34,7 +34,7 @@ self.addEventListener('fetch', (e) => {
   // Trang của ứng dụng: ưu tiên mạng, rơi về cache khi offline
   if (url.origin === location.origin) {
     e.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-cache' })
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(req, copy));

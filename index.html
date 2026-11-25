@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quản Lý Đầu Máy Diesel v6.0 - Triệu Việt Phương</title>
+    <title>Quản Lý Đầu Máy Diesel v6.1 - Triệu Việt Phương</title>
 
     <meta name="author" content="Triệu Việt Phương">
     <meta name="copyright" content="© 2026 Triệu Việt Phương. All rights reserved.">
@@ -112,7 +112,7 @@
         <button id="addBtn" type="button" aria-label="Thêm đầu máy" class="fixed bottom-5 right-4 z-40 w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-3xl font-bold shadow-xl">+</button>
 
         <footer class="bg-white border-t py-3 text-center text-[11px] text-gray-500 shadow-inner">
-            <p>Hệ thống Quản lý Đầu máy Diesel (v6.0) | Bản quyền © 2026 thuộc về <strong class="text-indigo-900">Triệu Việt Phương</strong>.</p>
+            <p>Hệ thống Quản lý Đầu máy Diesel (v6.1) | Bản quyền © 2026 thuộc về <strong class="text-indigo-900">Triệu Việt Phương</strong>.</p>
         </footer>
     </div>
 
@@ -144,11 +144,11 @@
             <h3 id="uTitle" class="text-sm font-bold mb-3 text-indigo-900">Cập nhật</h3>
             <form id="updateForm">
                 <div class="grid grid-cols-2 gap-2 mb-2.5">
-                    <div>
+                    <div id="uStatusWrap">
                         <label class="block text-[10px] font-semibold text-gray-700 mb-1">Cấp / Trạng thái:</label>
                         <select id="uStatus" class="w-full px-2.5 py-2 border-2 border-indigo-400 rounded text-xs font-extrabold bg-indigo-50 text-indigo-900"></select>
                     </div>
-                    <div>
+                    <div id="uDateWrap">
                         <label class="block text-[10px] font-semibold text-gray-700 mb-1">Ngày:</label>
                         <input type="date" id="uDate" required class="w-full px-2.5 py-1.5 border rounded text-xs font-semibold">
                     </div>
@@ -194,7 +194,7 @@
                 <button data-close="historyModal" aria-label="Đóng" class="bg-gray-100 hover:bg-gray-200 w-8 h-8 rounded-full font-bold text-xl">&times;</button>
             </div>
             <div class="p-4 overflow-y-auto flex-1 space-y-2.5">
-                <button id="hAddBtn" type="button" class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow">➕ Thêm ghi nhận / đổi trạng thái</button>
+                <button id="hAddBtn" type="button" class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow">➕ Thêm ghi nhận nhật ký</button>
                 <div id="hList" class="space-y-2.5"></div>
             </div>
         </div>
@@ -650,7 +650,7 @@
         let locos = [];
         let statusConfigs = DEFAULT_STATUSES.map((s, i) => ({ ...s, order: i }));
         let selectedCategory = 'ALL', showDeleted = false, lastFiltered = [];
-        let activeLocoId = null, editingHistId = null, histList = [];
+        let activeLocoId = null, editingHistId = null, histList = [], updMode = 'status';
         let img = { action: 'keep', data: '' };
         let refs = {}, histRef = null, seededStatuses = false, statusSig = '';
         let serverOffset = 0, migPlan = null;
@@ -880,7 +880,7 @@
                     <div class="mt-3 pt-3 border-t flex justify-between items-center gap-2">
                         ${histBtn}
                         <div class="flex items-center gap-3">
-                            <button data-act="update" data-id="${esc(loc.id)}" class="text-indigo-600 hover:text-indigo-800 text-xs font-bold">✏️ Cập nhật</button>
+                            <button data-act="update" data-id="${esc(loc.id)}" class="text-indigo-600 hover:text-indigo-800 text-xs font-bold">🔄 Đổi trạng thái</button>
                             ${adminBtn}
                         </div>
                     </div>
@@ -921,7 +921,7 @@
             const b = e.target.closest('[data-act]'); if (!b) return;
             const id = b.dataset.id;
             if (b.dataset.act === 'history') openHistory(id);
-            else if (b.dataset.act === 'update') openUpdate(id, null);
+            else if (b.dataset.act === 'update') openUpdate(id, null, 'status');
             else if (b.dataset.act === 'delete') softDeleteLoco(id, true);
             else if (b.dataset.act === 'restore') softDeleteLoco(id, false);
         });
@@ -1012,13 +1012,17 @@
             $('uRemoveImg').classList.remove('hidden'); $('uImgInfo').textContent = info;
         }
 
-        function openUpdate(locoId, hid) {
+        // mode 'status': đổi trạng thái đầu máy (nút trên thẻ). mode 'log': chỉ ghi/sửa nhật ký, KHÔNG đổi trạng thái.
+        function openUpdate(locoId, hid, mode) {
             const loc = locos.find(l => l.id === locoId); if (!loc) return;
-            activeLocoId = locoId; editingHistId = hid;
+            activeLocoId = locoId; editingHistId = hid; updMode = hid ? 'log' : (mode || 'status');
+            const logMode = updMode === 'log';
+            $('uStatusWrap').classList.toggle('hidden', logMode);
+            $('uDateWrap').classList.toggle('col-span-2', logMode);
             refreshTeamList(); resetImageUI();
             ensureOption($('uStatus'), loc.status);
             if (!hid) {
-                $('uTitle').textContent = `Cập nhật ${loc.number}`;
+                $('uTitle').textContent = logMode ? `Ghi nhật ký ${loc.number} (cấp hiện tại: ${loc.status})` : `Đổi trạng thái ${loc.number}`;
                 $('uStatus').value = loc.status; $('uDate').value = isoToday(); $('uTeam').value = ''; $('uNote').value = '';
             } else {
                 const h = histList.find(x => x.id === hid); if (!h) return;
@@ -1075,8 +1079,9 @@
         // Cập nhật đầu máy theo bản ghi mới nhất còn hiệu lực
         function recomputeLocoUpdates(id, list) {
             const up = {}, latest = sortHist(list.filter(h => !h.deleted), false)[0], loc = locos.find(l => l.id === id);
-            if (latest && loc && (loc.status !== latest.status || (loc.lastDate || '') !== (latest.date || '') || (loc.note || '') !== (latest.note || ''))) {
-                setLocoFields(up, id, { status: latest.status, lastDate: latest.date || '', note: latest.note || '', updatedAt: TS, updatedBy: userName(), updatedByUid: currentUser.uid });
+            if (latest && loc && ((loc.lastDate || '') !== (latest.date || '') || (loc.note || '') !== (latest.note || ''))) {
+                // Chỉ đồng bộ ngày + ghi chú gần nhất; trạng thái chỉ đổi bằng nút "Đổi trạng thái" trên thẻ
+                setLocoFields(up, id, { lastDate: latest.date || '', note: latest.note || '', updatedAt: TS, updatedBy: userName(), updatedByUid: currentUser.uid });
             }
             return up;
         }
@@ -1085,9 +1090,13 @@
             e.preventDefault();
             if (!guardWrite()) return;
             const loc = locos.find(l => l.id === activeLocoId); if (!loc) return;
-            const status = $('uStatus').value, date = $('uDate').value, team = $('uTeam').value.trim(), note = $('uNote').value.trim();
+            const logMode = updMode === 'log';
+            const editing = editingHistId ? histList.find(x => x.id === editingHistId) : null;
+            const status = logMode ? (editing ? editing.status : loc.status) : $('uStatus').value; // nhật ký: giữ nguyên cấp, không đổi
+            const date = $('uDate').value, team = $('uTeam').value.trim(), note = $('uNote').value.trim();
             if (!date) { toast('Hãy chọn ngày', 'error'); return; }
-            if (!editingHistId && status === loc.status && !note && img.action !== 'set') { toast('Hãy đổi trạng thái hoặc nhập nội dung', 'error'); return; }
+            if (!editingHistId && logMode && !note && img.action !== 'set') { toast('Hãy nhập nội dung hoặc đính kèm ảnh', 'error'); return; }
+            if (!editingHistId && !logMode && status === loc.status && !note && img.action !== 'set') { toast('Hãy chọn cấp trạng thái mới hoặc nhập nội dung', 'error'); return; }
             const up = {}, uid = currentUser.uid, name = userName();
             if (!editingHistId) {
                 const hid = db.ref(`${ROOT}/histories/${activeLocoId}`).push().key;
@@ -1095,13 +1104,19 @@
                 if (img.action === 'set') { rec.hasImage = true; up[`${ROOT}/images/${hid}`] = img.data; }
                 up[`${ROOT}/histories/${activeLocoId}/${hid}`] = rec;
                 // Ghi nhận bổ sung ngày cũ thì không được ghi đè trạng thái hiện tại của đầu máy
-                if (!loc.lastDate || date >= loc.lastDate) setLocoFields(up, activeLocoId, { status, lastDate: date, note, updatedAt: TS, updatedBy: name, updatedByUid: uid });
+                if (!loc.lastDate || date >= loc.lastDate) {
+                    const f = { lastDate: date, note, updatedAt: TS, updatedBy: name, updatedByUid: uid };
+                    if (!logMode) f.status = status; // chỉ nút "Đổi trạng thái" mới đổi cấp của đầu máy
+                    setLocoFields(up, activeLocoId, f);
+                } else if (!logMode) {
+                    setLocoFields(up, activeLocoId, { status, updatedAt: TS, updatedBy: name, updatedByUid: uid });
+                }
             } else {
                 const base = `${ROOT}/histories/${activeLocoId}/${editingHistId}`;
-                Object.assign(up, { [base + '/date']: date, [base + '/status']: status, [base + '/team']: team, [base + '/note']: note, [base + '/editedBy']: name, [base + '/editedAt']: TS });
+                Object.assign(up, { [base + '/date']: date, [base + '/team']: team, [base + '/note']: note, [base + '/editedBy']: name, [base + '/editedAt']: TS });
                 if (img.action === 'set') { up[base + '/hasImage'] = true; up[`${ROOT}/images/${editingHistId}`] = img.data; }
                 else if (img.action === 'remove') { up[base + '/hasImage'] = false; up[`${ROOT}/images/${editingHistId}`] = null; }
-                const next = histList.map(h => h.id === editingHistId ? { ...h, date, status, team, note } : h);
+                const next = histList.map(h => h.id === editingHistId ? { ...h, date, team, note } : h);
                 Object.assign(up, recomputeLocoUpdates(activeLocoId, next));
             }
             rememberTeam(team);
@@ -1152,11 +1167,11 @@
                 </div>`;
             }).join('');
         }
-        $('hAddBtn').addEventListener('click', () => openUpdate(activeLocoId, null));
+        $('hAddBtn').addEventListener('click', () => openUpdate(activeLocoId, null, 'log'));
         $('hList').addEventListener('click', e => {
             const b = e.target.closest('[data-hact]'); if (!b) return;
             const hid = b.dataset.hid;
-            if (b.dataset.hact === 'edit') openUpdate(activeLocoId, hid);
+            if (b.dataset.hact === 'edit') openUpdate(activeLocoId, hid, 'log');
             else if (b.dataset.hact === 'img') viewImage(hid);
             else if (b.dataset.hact === 'del') deleteHist(hid);
         });
