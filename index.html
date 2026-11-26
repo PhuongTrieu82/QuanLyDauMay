@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quản Lý Đầu Máy Diesel v6.1 - Triệu Việt Phương</title>
+    <title>Quản Lý Đầu Máy Diesel v6.3 - Triệu Việt Phương</title>
 
     <meta name="author" content="Triệu Việt Phương">
     <meta name="copyright" content="© 2026 Triệu Việt Phương. All rights reserved.">
@@ -60,6 +60,7 @@
                         <button data-menu="export" class="w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">📊 Xuất báo cáo Excel</button>
                         <button data-menu="status" class="admin-only hidden w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">⚙️ Cài đặt cấp trạng thái</button>
                         <button data-menu="trash" id="menuTrash" class="admin-only hidden w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">🗑️ Hiện đầu máy đã xóa</button>
+                        <button data-menu="cleanempty" class="admin-only hidden w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">🧹 Dọn nhật ký trống / tự sinh</button>
                         <button data-menu="backup" class="admin-only hidden w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">💾 Sao lưu / Khôi phục (JSON)</button>
                         <button data-menu="migrate" class="admin-only hidden w-full text-left px-3 py-2.5 text-xs font-semibold hover:bg-indigo-50">📥 Chuyển dữ liệu từ v5.9</button>
                         <button data-menu="logout" class="w-full text-left px-3 py-2.5 text-xs font-semibold text-red-600 hover:bg-red-50 border-t">🚪 Đăng xuất</button>
@@ -112,7 +113,7 @@
         <button id="addBtn" type="button" aria-label="Thêm đầu máy" class="fixed bottom-5 right-4 z-40 w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-3xl font-bold shadow-xl">+</button>
 
         <footer class="bg-white border-t py-3 text-center text-[11px] text-gray-500 shadow-inner">
-            <p>Hệ thống Quản lý Đầu máy Diesel (v6.1) | Bản quyền © 2026 thuộc về <strong class="text-indigo-900">Triệu Việt Phương</strong>.</p>
+            <p>Hệ thống Quản lý Đầu máy Diesel (v6.3) | Bản quyền © 2026 thuộc về <strong class="text-indigo-900">Triệu Việt Phương</strong>.</p>
         </footer>
     </div>
 
@@ -153,17 +154,17 @@
                         <input type="date" id="uDate" required class="w-full px-2.5 py-1.5 border rounded text-xs font-semibold">
                     </div>
                 </div>
-                <div class="mb-2.5">
+                <div id="uTeamWrap" class="mb-2.5">
                     <label class="block text-[10px] font-semibold text-gray-700 mb-1">Thợ / Đội thực hiện:</label>
                     <input type="text" id="uTeam" list="teamList" maxlength="80" autocomplete="off" placeholder="Đội / Thợ thực hiện" class="w-full px-2.5 py-1.5 border rounded text-xs">
                     <datalist id="teamList"></datalist>
                 </div>
-                <div class="mb-2.5">
+                <div id="uNoteWrap" class="mb-2.5">
                     <label class="block text-[10px] font-semibold text-gray-700 mb-1">Nội dung bảo dưỡng / Lỗi sửa:</label>
                     <textarea id="uNote" rows="3" maxlength="1000" placeholder="Nội dung công việc, nguyên nhân, địa điểm..." class="w-full px-2.5 py-1.5 border rounded text-xs"></textarea>
                     <div id="noteChips" class="flex flex-wrap gap-1 mt-1"></div>
                 </div>
-                <div class="mb-3 pt-1 border-t">
+                <div id="uImgWrap" class="mb-3 pt-1 border-t">
                     <label class="block text-[10px] font-semibold text-gray-700 mb-1">📷 Ảnh đính kèm (tùy chọn):</label>
                     <input type="file" id="uFile" accept="image/*" capture="environment" class="hidden">
                     <div class="flex items-center gap-2">
@@ -944,6 +945,7 @@
             if (m === 'export') openExport();
             else if (m === 'status' && isAdmin) { renderStatusList(); resetStatusForm(); openModal('statusModal'); }
             else if (m === 'backup' && isAdmin) openBackup();
+            else if (m === 'cleanempty' && isAdmin) cleanEmptyHistories();
             else if (m === 'migrate' && isAdmin) { migPlan = null; $('migRunBtn').disabled = true; $('migLog').textContent = 'Bấm "1. Đọc dữ liệu cũ" để bắt đầu.'; openModal('migrateModal'); }
             else if (m === 'trash' && isAdmin) { showDeleted = !showDeleted; b.textContent = showDeleted ? '🗑️ Ẩn đầu máy đã xóa' : '🗑️ Hiện đầu máy đã xóa'; render(); }
             else if (m === 'logout') { if (confirm('Đăng xuất khỏi ứng dụng?')) auth.signOut(); }
@@ -972,10 +974,8 @@
             const exist = locos.find(l => l.id === id);
             if (exist) { toast(exist.deleted ? 'Số hiệu này đang nằm trong mục đã xóa (quản trị có thể khôi phục)' : 'Số hiệu này đã tồn tại!', 'error'); return; }
             const status = $('newLocoStatus').value, date = isoToday(), uid = currentUser.uid, name = userName();
-            const hid = db.ref(`${ROOT}/histories/${id}`).push().key;
-            const up = {};
+            const up = {}; // thêm đầu máy mới: không tự ghi dòng nào vào lịch sử
             setLocoFields(up, id, { number, series: seriesFromNumber(number), status, lastDate: date, note: '', updatedAt: TS, updatedBy: name, updatedByUid: uid });
-            up[`${ROOT}/histories/${id}/${hid}`] = { date, status, team: '', note: 'Khởi tạo đầu máy', by: uid, byName: name, at: TS };
             closeModal('addModal');
             commit(up, '✅ Đã tạo đầu máy mới');
         });
@@ -1019,6 +1019,7 @@
             const logMode = updMode === 'log';
             $('uStatusWrap').classList.toggle('hidden', logMode);
             $('uDateWrap').classList.toggle('col-span-2', logMode);
+            ['uTeamWrap', 'uNoteWrap', 'uImgWrap'].forEach(id => $(id).classList.toggle('hidden', !logMode)); // đổi cấp: chỉ còn cấp + ngày
             refreshTeamList(); resetImageUI();
             ensureOption($('uStatus'), loc.status);
             if (!hid) {
@@ -1095,6 +1096,15 @@
             const status = logMode ? (editing ? editing.status : loc.status) : $('uStatus').value; // nhật ký: giữ nguyên cấp, không đổi
             const date = $('uDate').value, team = $('uTeam').value.trim(), note = $('uNote').value.trim();
             if (!date) { toast('Hãy chọn ngày', 'error'); return; }
+            if (!logMode) {
+                // Đổi cấp: chỉ cập nhật đầu máy, KHÔNG ghi gì vào lịch sử
+                if (status === loc.status) { toast('Hãy chọn cấp trạng thái khác với cấp hiện tại', 'error'); return; }
+                const upS = {};
+                setLocoFields(upS, activeLocoId, { status, lastDate: date, updatedAt: TS, updatedBy: userName(), updatedByUid: currentUser.uid });
+                closeModal('updateModal');
+                commit(upS, '✅ Đã đổi trạng thái');
+                return;
+            }
             if (!editingHistId && logMode && !note && img.action !== 'set') { toast('Hãy nhập nội dung hoặc đính kèm ảnh', 'error'); return; }
             if (!editingHistId && !logMode && status === loc.status && !note && img.action !== 'set') { toast('Hãy chọn cấp trạng thái mới hoặc nhập nội dung', 'error'); return; }
             const up = {}, uid = currentUser.uid, name = userName();
@@ -1346,6 +1356,26 @@
                 });
             }
             return db.ref().update(ch.updates);
+        }
+        // Ẩn (xóa mềm) các nhật ký không có nội dung và không có ảnh - do cách ghi cũ tạo ra mỗi lần đổi cấp
+        async function cleanEmptyHistories() {
+            if (!isAdmin) return;
+            try {
+                const all = (await db.ref(`${ROOT}/histories`).once('value')).val() || {};
+                const paths = [];
+                Object.keys(all).forEach(id => Object.keys(all[id]).forEach(hid => {
+                    const h = all[id][hid];
+                    if (h && !h.deleted && !h.hasImage && ['', 'Khởi tạo đầu máy', 'Khởi tạo đầu máy mới', 'Khởi tạo ban đầu', 'Thay đổi trạng thái trực tiếp'].includes(String(h.note || '').trim())) paths.push(`${ROOT}/histories/${id}/${hid}`);
+                }));
+                if (!paths.length) { toast('Không có nhật ký trống nào cần dọn'); return; }
+                if (!confirm(`Tìm thấy ${paths.length} nhật ký trống hoặc tự sinh ("Khởi tạo đầu máy"...). Ẩn tất cả? (Không ảnh hưởng trạng thái đầu máy)`)) return;
+                for (let i = 0; i < paths.length; i += 200) {
+                    const up = {};
+                    paths.slice(i, i + 200).forEach(p => { up[p + '/deleted'] = true; up[p + '/deletedBy'] = 'Dọn nhật ký trống'; });
+                    await db.ref().update(up);
+                }
+                toast(`✅ Đã ẩn ${paths.length} nhật ký trống`);
+            } catch (err) { toast('Dọn thất bại: ' + err.message, 'error'); }
         }
         function migLog(t) { $('migLog').textContent = t; }
         $('migReadBtn').addEventListener('click', async () => {
